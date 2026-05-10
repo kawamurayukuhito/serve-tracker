@@ -1,0 +1,511 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+  <title>🏐 Serve Tracker</title>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700;900&family=Bebas+Neue&display=swap" rel="stylesheet" />
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Noto Sans JP', sans-serif; background: #0a0e1a; color: #e8eaf0; min-height: 100vh; }
+    @keyframes fadeSlide {
+      from { opacity: 0; transform: translateX(-50%) translateY(-12px); }
+      to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+    }
+    #toast {
+      display: none; position: fixed; top: 24px; left: 50%; transform: translateX(-50%);
+      z-index: 1000; padding: 12px 28px; border-radius: 40px;
+      font-weight: 900; font-size: 16px; letter-spacing: 1px;
+      box-shadow: 0 4px 32px rgba(0,0,0,0.5); animation: fadeSlide 0.3s ease;
+      white-space: nowrap;
+    }
+    .header {
+      background: linear-gradient(135deg,#101828,#0d1520);
+      border-bottom: 1px solid #1e2840; padding: 14px 16px;
+      display: flex; align-items: center; gap: 12px; position: sticky; top: 0; z-index: 100;
+    }
+    .header-title { font-family: 'Bebas Neue', cursive; font-size: 22px; letter-spacing: 2px; color: #3a8eff; }
+    .header-sub { font-size: 10px; color: #4a5a80; letter-spacing: 1px; }
+    .tabs { display: flex; gap: 6px; }
+    .tab { cursor: pointer; padding: 7px 16px; border-radius: 24px; font-weight: 700; font-size: 13px; transition: background 0.2s, color 0.2s; border: none; font-family: inherit; }
+    .tab.active { background: #3a6eff; color: #fff; }
+    .tab:not(.active) { color: #7080a0; background: transparent; }
+    #save-status { font-size: 10px; letter-spacing: 0.5px; color: #2a3450; transition: color 0.3s; text-align: right; margin-top: 3px; }
+    .content { padding: 14px; max-width: 480px; margin: 0 auto; }
+    .label { font-size: 11px; color: #4a5a80; margin-bottom: 6px; letter-spacing: 1px; }
+    .session-chips { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+    .session-chip { padding: 6px 14px; border-radius: 20px; cursor: pointer; font-size: 13px; font-weight: 700; border: 1.5px solid #2a3450; color: #7080a0; background: #161c2e; transition: all 0.15s; }
+    .session-chip.active { background: #3a6eff; border-color: #3a6eff; color: #fff; }
+    .row { display: flex; gap: 8px; margin-bottom: 12px; }
+    input { background: #161c2e; border: 1.5px solid #2a3450; border-radius: 8px; padding: 8px 12px; color: #e8eaf0; outline: none; font-family: inherit; font-size: 13px; }
+    input:focus { border-color: #3a6eff; }
+    .btn { padding: 8px 14px; border-radius: 8px; border: none; font-weight: 700; cursor: pointer; font-family: inherit; font-size: 13px; }
+    .btn-blue { background: #3a6eff; color: #fff; }
+    .btn-ghost { background: #1a2035; color: #7080a0; border: 1.5px solid #2a3450; }
+    .btn-danger { background: #2a1015; color: #e05555; border: 1.5px solid #3a1520; }
+    .set-bar { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+    .set-info { flex: 1; background: #11172a; border: 1px solid #1e2840; border-radius: 10px; padding: 8px 14px; display: flex; align-items: center; gap: 8px; }
+    .set-num { font-family: 'Bebas Neue', cursive; font-size: 22px; color: #3a8eff; letter-spacing: 2px; }
+    .btn-next { padding: 8px 14px; border-radius: 10px; background: linear-gradient(135deg,#2a3eff,#1a2acc); color: #fff; border: none; font-weight: 900; font-size: 12px; cursor: pointer; font-family: inherit; white-space: nowrap; }
+    .player-card { background: #11172a; border: 1px solid #1e2840; border-radius: 14px; padding: 14px 16px; margin-bottom: 10px; }
+    .player-header { display: flex; align-items: center; margin-bottom: 10px; }
+    .player-num { width: 36px; height: 36px; border-radius: 10px; background: #1e2c50; display: flex; align-items: center; justify-content: center; font-weight: 900; color: #3a8eff; font-size: 15px; margin-right: 10px; flex-shrink: 0; }
+    .player-name { font-weight: 700; font-size: 15px; }
+    .player-meta { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+    .edit-btn { font-size: 13px; color: #3a6eff; cursor: pointer; padding: 2px 6px; border-radius: 6px; background: #1a2540; border: none; font-family: inherit; }
+    .serve-btns { display: flex; gap: 8px; }
+    .serve-btn { flex: 1; padding: 10px 0; border-radius: 10px; border: none; font-weight: 900; font-size: 13px; cursor: pointer; font-family: inherit; line-height: 1.4; }
+    .btn-ace { background: linear-gradient(135deg,#f0c040,#e08020); color: #1a1000; }
+    .btn-success { background: linear-gradient(135deg,#40c87a,#10906a); color: #fff; }
+    .btn-miss { background: linear-gradient(135deg,#e05555,#a01515); color: #fff; }
+    .serve-btn:active { transform: scale(0.94); }
+    .edit-form { }
+    .edit-actions { display: flex; gap: 8px; }
+    .undo-btn { width: 100%; padding: 10px; margin-top: 4px; background: #1a2035; border: 1.5px solid #2a3450; border-radius: 10px; color: #7080a0; font-weight: 700; cursor: pointer; font-family: inherit; font-size: 13px; }
+    .add-player-box { margin-top: 20px; padding: 16px; background: #0d1320; border-radius: 14px; border: 1px dashed #2a3450; }
+    /* Stats */
+    .ranking-card { border-radius: 14px; padding: 14px 16px; margin-bottom: 10px; }
+    .ranking-header { display: flex; align-items: center; margin-bottom: 8px; }
+    .medal { font-size: 22px; width: 32px; flex-shrink: 0; }
+    .avg-pts { font-family: 'Bebas Neue', cursive; font-size: 26px; letter-spacing: 1px; line-height: 1; }
+    .avg-label { font-size: 10px; color: #4a5a80; }
+    .stat-grid { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr 1fr; gap: 6px; margin-bottom: 8px; text-align: center; font-size: 12px; }
+    .stat-val { font-weight: 900; font-size: 16px; }
+    .color-bar { display: flex; gap: 2px; height: 6px; border-radius: 4px; overflow: hidden; }
+    .summary-box { margin-top: 8px; padding: 14px; background: #0d1320; border-radius: 14px; border: 1px solid #1e2840; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; text-align: center; font-size: 12px; }
+    .summary-val { font-weight: 900; font-size: 20px; }
+  </style>
+</head>
+<body>
+
+<div id="toast"></div>
+
+<div class="header">
+  <span style="font-size:26px">🏐</span>
+  <div>
+    <div class="header-title">SERVE TRACKER</div>
+    <div class="header-sub">バレーボール サーブデータ記録</div>
+  </div>
+  <div style="margin-left:auto; display:flex; flex-direction:column; align-items:flex-end; gap:4px">
+    <div class="tabs">
+      <button class="tab active" id="tab-record" onclick="switchView('record')">記録</button>
+      <button class="tab" id="tab-stats" onclick="switchView('stats')">集計</button>
+    </div>
+    <div id="save-status">自動保存ON</div>
+  </div>
+</div>
+
+<div class="content">
+  <!-- Session selector -->
+  <div style="margin-bottom:16px">
+    <div class="label">セッション選択</div>
+    <div class="session-chips" id="session-chips"></div>
+    <div class="row">
+      <input id="new-session-name" placeholder="新しいセッション名" style="flex:1" />
+      <button class="btn btn-blue" onclick="addSession()">追加</button>
+    </div>
+  </div>
+
+  <!-- Record view -->
+  <div id="view-record">
+    <div class="set-bar">
+      <div class="set-info">
+        <span style="font-size:11px;color:#4a5a80;letter-spacing:1px">現在のセット</span>
+        <span class="set-num" id="set-num">SET 1</span>
+        <span style="margin-left:auto;font-size:11px;color:#4a5a80" id="set-count">0本</span>
+      </div>
+      <button class="btn-next" onclick="nextSet()">次のセット →</button>
+    </div>
+    <div id="player-list"></div>
+    <button class="undo-btn" id="undo-btn" onclick="undoLast()" style="display:none">↩ 最後の記録を取り消す</button>
+    <div class="add-player-box">
+      <div class="label">選手を追加</div>
+      <div class="row" style="margin-bottom:0">
+        <input id="new-number" placeholder="背番号" style="width:64px" />
+        <input id="new-name" placeholder="選手名" style="flex:1" />
+        <button class="btn btn-blue" onclick="addPlayer()">追加</button>
+      </div>
+    </div>
+
+    <!-- Reset buttons -->
+    <div style="margin-top:10px; display:flex; gap:8px;">
+      <button class="btn btn-danger" style="flex:1; padding:10px 0; border-radius:10px; font-size:12px;" onclick="showConfirm('players')">👤 選手をデフォルトに戻す</button>
+      <button class="btn btn-danger" style="flex:1; padding:10px 0; border-radius:10px; font-size:12px;" onclick="showConfirm('all')">🗑 全データをリセット</button>
+    </div>
+
+    <!-- Inline confirm dialog -->
+    <div id="confirm-box" style="display:none; margin-top:10px; padding:14px; background:#1a0a0a; border:1.5px solid #e05555; border-radius:12px; text-align:center;">
+      <div id="confirm-msg" style="font-size:13px; font-weight:700; margin-bottom:12px; color:#e8eaf0;"></div>
+      <div style="display:flex; gap:8px;">
+        <button class="btn btn-danger" style="flex:1; padding:10px 0; border-radius:8px;" onclick="doReset()">はい、実行する</button>
+        <button class="btn btn-ghost" style="flex:1; padding:10px 0; border-radius:8px;" onclick="hideConfirm()">キャンセル</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Stats view -->
+  <div id="view-stats" style="display:none">
+    <div style="margin-bottom:16px">
+      <div style="font-family:'Bebas Neue',cursive;font-size:20px;letter-spacing:2px;color:#3a8eff;margin-bottom:2px" id="stats-title">ランキング</div>
+      <div style="font-size:12px;color:#4a5a80">平均pt/セット順　エース×3 / 成功×1 / ミス×−5</div>
+    </div>
+    <div id="ranking-list"></div>
+    <div class="summary-box" id="summary-box"></div>
+  </div>
+</div>
+
+<script>
+const POINT_MAP = { ace: 3, success: 1, miss: -5 };
+const MEDAL = ["🥇","🥈","🥉"];
+const STORAGE_KEY = "serve-tracker-data";
+
+let state = {
+  players: [
+    { id: 1,  name: "河村 慶人", number: 1  },
+    { id: 2,  name: "",         number: 2  },
+    { id: 3,  name: "",         number: 3  },
+    { id: 4,  name: "",         number: 4  },
+    { id: 5,  name: "",         number: 5  },
+    { id: 6,  name: "",         number: 6  },
+    { id: 7,  name: "",         number: 7  },
+    { id: 8,  name: "",         number: 8  },
+    { id: 9,  name: "",         number: 9  },
+    { id: 10, name: "",         number: 10 },
+    { id: 11, name: "",         number: 11 },
+    { id: 12, name: "",         number: 12 },
+  ],
+  sessions: [{ id: 1, name: "練習 1", logs: [], setBreaks: [] }],
+  activeSession: 1,
+};
+
+const DEFAULT_PLAYERS = [
+  { id: 1,  name: "河村 慶人", number: 1  },
+  { id: 2,  name: "",         number: 2  },
+  { id: 3,  name: "",         number: 3  },
+  { id: 4,  name: "",         number: 4  },
+  { id: 5,  name: "",         number: 5  },
+  { id: 6,  name: "",         number: 6  },
+  { id: 7,  name: "",         number: 7  },
+  { id: 8,  name: "",         number: 8  },
+  { id: 9,  name: "",         number: 9  },
+  { id: 10, name: "",         number: 10 },
+  { id: 11, name: "",         number: 11 },
+  { id: 12, name: "",         number: 12 },
+];
+
+let editingPlayerId = null;
+let currentView = "record";
+
+// ---- Storage helpers ----
+function storageGet(key) {
+  try { return localStorage.getItem(key); } catch(e) { return null; }
+}
+function storageSet(key, val) {
+  try { localStorage.setItem(key, val); return true; } catch(e) { return false; }
+}
+function storageRemove(key) {
+  try { localStorage.removeItem(key); } catch(e) {}
+}
+
+function loadData() {
+  try {
+    const raw = storageGet(STORAGE_KEY);
+    if (raw) {
+      const d = JSON.parse(raw);
+      if (d.players && d.players.length > 0) state.players = d.players;
+      else state.players = DEFAULT_PLAYERS.map(p => ({ ...p }));
+      if (d.sessions) state.sessions = d.sessions;
+      if (d.activeSession) state.activeSession = d.activeSession;
+    }
+  } catch(e) {}
+}
+
+function saveData() {
+  const el = document.getElementById("save-status");
+  el.style.color = "#f0c040"; el.textContent = "💾 保存中...";
+  const ok = storageSet(STORAGE_KEY, JSON.stringify(state));
+  if (ok) {
+    el.style.color = "#40c87a"; el.textContent = "✓ 保存済み";
+  } else {
+    el.style.color = "#e05555"; el.textContent = "✕ 保存失敗";
+  }
+  setTimeout(() => { el.style.color = "#2a3450"; el.textContent = "自動保存ON"; }, 2000);
+}
+
+// ---- Toast ----
+let toastTimer;
+function showToast(msg, type) {
+  const el = document.getElementById("toast");
+  el.textContent = msg;
+  el.style.background = type === "ace" ? "#f0c040" : type === "success" ? "#40c87a" : "#e05555";
+  el.style.color = type === "ace" ? "#1a1200" : "#fff";
+  el.style.display = "block";
+  el.style.animation = "none"; void el.offsetWidth; el.style.animation = "fadeSlide 0.3s ease";
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { el.style.display = "none"; }, 1800);
+}
+
+// ---- Getters ----
+function getSession() {
+  return state.sessions.find(s => s.id === state.activeSession);
+}
+function currentSet() {
+  const s = getSession();
+  return (s.setBreaks ? s.setBreaks.length : 0) + 1;
+}
+function currentSetCount() {
+  const s = getSession();
+  const breaks = [0, ...(s.setBreaks||[]), s.logs.length];
+  return breaks[breaks.length-1] - breaks[breaks.length-2];
+}
+
+// ---- Actions ----
+function recordServe(playerId, type) {
+  const s = getSession();
+  s.logs.push({ playerId, type, pts: POINT_MAP[type], time: Date.now() });
+  const p = state.players.find(p => p.id === playerId);
+  const labels = { ace: `${p.name} サーブエース！ +3pt`, success: `${p.name} 成功 +1pt`, miss: `${p.name} ミス -5pt` };
+  showToast(labels[type], type);
+  saveData();
+  render();
+}
+
+function undoLast() {
+  const s = getSession();
+  if (s.logs.length === 0) return;
+  s.logs.pop();
+  saveData(); render();
+}
+
+function nextSet() {
+  const s = getSession();
+  if (!s.setBreaks) s.setBreaks = [];
+  s.setBreaks.push(s.logs.length);
+  saveData(); render();
+}
+
+function addSession() {
+  const name = document.getElementById("new-session-name").value.trim();
+  if (!name) return;
+  const id = Date.now();
+  state.sessions.push({ id, name, logs: [], setBreaks: [] });
+  state.activeSession = id;
+  document.getElementById("new-session-name").value = "";
+  saveData(); render();
+}
+
+function selectSession(id) {
+  state.activeSession = id;
+  saveData(); render();
+}
+
+function addPlayer() {
+  const name = document.getElementById("new-name").value.trim();
+  const number = parseInt(document.getElementById("new-number").value) || 0;
+  if (!name) return;
+  state.players.push({ id: Date.now(), name, number });
+  document.getElementById("new-name").value = "";
+  document.getElementById("new-number").value = "";
+  saveData(); render();
+}
+
+let pendingReset = null;
+
+function showConfirm(type) {
+  pendingReset = type;
+  const msg = type === 'players'
+    ? "選手リストを1〜12番のデフォルトに戻しますか？\n記録データはそのまま残ります。"
+    : "全データ（選手・セッション・記録）をリセットしますか？\nこの操作は元に戻せません。";
+  document.getElementById("confirm-msg").textContent = msg;
+  document.getElementById("confirm-box").style.display = "";
+}
+
+function hideConfirm() {
+  pendingReset = null;
+  document.getElementById("confirm-box").style.display = "none";
+}
+
+function doReset() {
+  if (pendingReset === 'players') {
+    state.players = DEFAULT_PLAYERS.map(p => ({ ...p }));
+  } else if (pendingReset === 'all') {
+    state.players = DEFAULT_PLAYERS.map(p => ({ ...p }));
+    state.sessions = [{ id: 1, name: "練習 1", logs: [], setBreaks: [] }];
+    state.activeSession = 1;
+    storageRemove(STORAGE_KEY);
+  }
+  hideConfirm();
+  saveData(); render();
+}
+
+function resetPlayers() { showConfirm('players'); }
+function resetAll() { showConfirm('all'); }
+
+function startEdit(id) {
+  editingPlayerId = id;
+  render();
+}
+
+function cancelEdit() {
+  editingPlayerId = null;
+  render();
+}
+
+function saveEdit(id) {
+  const name = document.getElementById("edit-name-" + id).value.trim();
+  const number = parseInt(document.getElementById("edit-num-" + id).value) || 0;
+  if (!name) return;
+  const p = state.players.find(p => p.id === id);
+  p.name = name; p.number = number;
+  editingPlayerId = null;
+  saveData(); render();
+}
+
+function deletePlayer(id) {
+  state.players = state.players.filter(p => p.id !== id);
+  editingPlayerId = null;
+  saveData(); render();
+}
+
+function switchView(v) {
+  currentView = v;
+  document.getElementById("view-record").style.display = v === "record" ? "" : "none";
+  document.getElementById("view-stats").style.display = v === "stats" ? "" : "none";
+  document.getElementById("tab-record").classList.toggle("active", v === "record");
+  document.getElementById("tab-stats").classList.toggle("active", v === "stats");
+  if (v === "stats") renderStats();
+}
+
+// ---- Render ----
+function getStats(sessionId) {
+  const s = state.sessions.find(ss => ss.id === sessionId);
+  if (!s) return [];
+  const breaks = [0, ...(s.setBreaks||[]), s.logs.length];
+  return state.players.map(p => {
+    const logs = s.logs.filter(l => l.playerId === p.id);
+    const ace = logs.filter(l => l.type === "ace").length;
+    const success = logs.filter(l => l.type === "success").length;
+    const miss = logs.filter(l => l.type === "miss").length;
+    const total = ace + success + miss;
+    const pts = ace * 3 + success - miss * 5;
+    const rate = total > 0 ? Math.round(((ace+success)/total)*100) : 0;
+    let setsPlayed = 0;
+    for (let i = 0; i < breaks.length-1; i++) {
+      const setLogs = s.logs.slice(breaks[i], breaks[i+1]);
+      if (setLogs.some(l => l.playerId === p.id)) setsPlayed++;
+    }
+    if (setsPlayed === 0 && total > 0) setsPlayed = 1;
+    const avgPts = setsPlayed > 0 ? Math.round((pts / setsPlayed) * 10) / 10 : 0;
+    return { ...p, ace, success, miss, total, pts, rate, setsPlayed, avgPts };
+  }).sort((a,b) => {
+    if (b.total === 0 && a.total === 0) return 0;
+    if (b.total === 0) return -1;
+    if (a.total === 0) return 1;
+    return b.avgPts - a.avgPts;
+  });
+}
+
+function render() {
+  const s = getSession();
+
+  // Session chips
+  document.getElementById("session-chips").innerHTML = state.sessions.map(ss =>
+    `<div class="session-chip ${ss.id === state.activeSession ? 'active' : ''}" onclick="selectSession(${ss.id})">${ss.name}</div>`
+  ).join("");
+
+  // Set info
+  document.getElementById("set-num").textContent = "SET " + currentSet();
+  document.getElementById("set-count").textContent = currentSetCount() + "本";
+
+  // Player list
+  document.getElementById("player-list").innerHTML = state.players.map(p => {
+    const count = s.logs.filter(l => l.playerId === p.id).length;
+    if (editingPlayerId === p.id) {
+      return `<div class="player-card">
+        <div class="label" style="margin-bottom:8px">選手を編集</div>
+        <div class="row" style="margin-bottom:8px">
+          <input id="edit-num-${p.id}" value="${p.number}" placeholder="背番号" style="width:64px" />
+          <input id="edit-name-${p.id}" value="${p.name}" placeholder="選手名" style="flex:1" />
+        </div>
+        <div class="edit-actions">
+          <button class="btn btn-blue" style="flex:1" onclick="saveEdit(${p.id})">保存</button>
+          <button class="btn btn-ghost" style="flex:1" onclick="cancelEdit()">キャンセル</button>
+          <button class="btn btn-danger" onclick="deletePlayer(${p.id})">削除</button>
+        </div>
+      </div>`;
+    }
+    return `<div class="player-card">
+      <div class="player-header">
+        <div class="player-num">${p.number}</div>
+        <div class="player-name">${p.name}</div>
+        <div class="player-meta">
+          <span style="font-size:12px;color:#4a5a80">${count}本</span>
+          <button class="edit-btn" onclick="startEdit(${p.id})">✎</button>
+        </div>
+      </div>
+      <div class="serve-btns">
+        <button class="serve-btn btn-ace" onclick="recordServe(${p.id},'ace')">⚡ エース<br><span style="font-size:11px;opacity:0.7">+3pt</span></button>
+        <button class="serve-btn btn-success" onclick="recordServe(${p.id},'success')">✓ 成功<br><span style="font-size:11px;opacity:0.7">+1pt</span></button>
+        <button class="serve-btn btn-miss" onclick="recordServe(${p.id},'miss')">✕ ミス<br><span style="font-size:11px;opacity:0.7">-5pt</span></button>
+      </div>
+    </div>`;
+  }).join("");
+
+  // Undo
+  document.getElementById("undo-btn").style.display = s.logs.length > 0 ? "" : "none";
+
+  if (currentView === "stats") renderStats();
+}
+
+function renderStats() {
+  const s = getSession();
+  document.getElementById("stats-title").textContent = s.name + " — ランキング";
+
+  const ranking = getStats(state.activeSession);
+  document.getElementById("ranking-list").innerHTML = ranking.map((p, i) => {
+    const isFirst = i === 0 && p.total > 0;
+    const bg = isFirst ? "linear-gradient(135deg,#1e2a10,#2a3818)" : "#11172a";
+    const border = isFirst ? "#8a9a30" : "#1e2840";
+    const medal = p.total === 0 ? "—" : (MEDAL[i] || (i+1));
+    const avgStr = p.total === 0 ? "—" : (p.avgPts >= 0 ? "+" : "") + p.avgPts;
+    const avgColor = p.avgPts >= 0 ? "#f0c040" : "#e05555";
+    const barAce = p.ace > 0 ? `<div style="flex:${p.ace};background:#f0c040"></div>` : "";
+    const barOk  = p.success > 0 ? `<div style="flex:${p.success};background:#40c87a"></div>` : "";
+    const barMiss= p.miss > 0 ? `<div style="flex:${p.miss};background:#e05555"></div>` : "";
+    return `<div class="ranking-card" style="background:${bg};border:1.5px solid ${border};opacity:${p.total===0?0.45:1}">
+      <div class="ranking-header">
+        <div class="medal">${medal}</div>
+        <div style="font-weight:700;font-size:15px">${p.name}</div>
+        <div style="margin-left:8px;color:#4a5a80;font-size:12px">#${p.number}</div>
+        <div style="margin-left:auto;text-align:right">
+          <div class="avg-pts" style="color:${avgColor}">${avgStr}</div>
+          <div class="avg-label">pt/セット</div>
+        </div>
+      </div>
+      <div class="stat-grid">
+        <div><div style="color:#4a5a80">エース</div><div class="stat-val" style="color:#f0c040">${p.ace}</div></div>
+        <div><div style="color:#4a5a80">成功</div><div class="stat-val" style="color:#40c87a">${p.success}</div></div>
+        <div><div style="color:#4a5a80">ミス</div><div class="stat-val" style="color:#e05555">${p.miss}</div></div>
+        <div><div style="color:#4a5a80">成功率</div><div class="stat-val" style="color:#3a8eff">${p.rate}%</div></div>
+        <div><div style="color:#4a5a80">出場</div><div class="stat-val" style="color:#a080ff">${p.setsPlayed}S</div></div>
+      </div>
+      ${p.total > 0 ? `<div class="color-bar">${barAce}${barOk}${barMiss}</div>` : ""}
+    </div>`;
+  }).join("");
+
+  const total = s.logs.length;
+  const aces = s.logs.filter(l => l.type === "ace").length;
+  const rate = total > 0 ? Math.round((s.logs.filter(l => l.type !== "miss").length / total) * 100) : 0;
+  document.getElementById("summary-box").innerHTML = `
+    <div><div style="color:#4a5a80">総サーブ数</div><div class="summary-val">${total}</div></div>
+    <div><div style="color:#4a5a80">エース</div><div class="summary-val" style="color:#f0c040">${aces}</div></div>
+    <div><div style="color:#4a5a80">チーム成功率</div><div class="summary-val" style="color:#40c87a">${rate}%</div></div>
+  `;
+}
+
+// ---- Init ----
+loadData();
+render();
+</script>
+</body>
+</html>
