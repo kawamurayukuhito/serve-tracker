@@ -1,0 +1,2791 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>バレーボール プレー記録</title>
+
+  <!-- Firebase Compat SDK -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-database-compat.js"></script>
+
+  <style>
+    /* ==========================================================================
+       CSS変数・デザインシステム（体育館照明下での高コントラスト・片手操作最適化）
+       ========================================================================== */
+    :root {
+      --bg-app: #f1f5f9;
+      --bg-surface: #ffffff;
+      --bg-subtle: #e2e8f0;
+      --text-primary: #0f172a;
+      --text-secondary: #475569;
+      --text-muted: #64748b;
+      --border-color: #cbd5e1;
+
+      /* ブランド・アクセント */
+      --primary: #1e40af;
+      --primary-light: #dbeafe;
+      --primary-text: #ffffff;
+
+      /* スキル別テーマカラー */
+      --serve-accent: #0284c7;
+      --serve-bg: #f0f9ff;
+      --spike-accent: #d97706;
+      --spike-bg: #fffbeb;
+      --receive-accent: #059669;
+      --receive-bg: #ecfdf5;
+
+      /* 結果ステータスカラー（直感的な色分け） */
+      --res-positive: #059669;      /* エース / 決定 / Aパス */
+      --res-positive-bg: #d1fae5;
+      --res-positive-border: #10b981;
+
+      --res-good: #0284c7;          /* 相手を崩した */
+      --res-good-bg: #e0f2fe;
+      --res-good-border: #38bdf8;
+
+      --res-neutral: #475569;       /* 続行 / Bパス */
+      --res-neutral-bg: #f1f5f9;
+      --res-neutral-border: #94a3b8;
+
+      --res-warn: #d97706;          /* ブロックされた */
+      --res-warn-bg: #fef3c7;
+      --res-warn-border: #f59e0b;
+
+      --res-negative: #dc2626;      /* ミス / 失点 */
+      --res-negative-bg: #fee2e2;
+      --res-negative-border: #ef4444;
+
+      /* レイアウト・セーフエリア */
+      --safe-top: env(safe-area-inset-top, 0px);
+      --safe-bottom: env(safe-area-inset-bottom, 0px);
+      --tabbar-height: 54px;
+      --radius-sm: 8px;
+      --radius-md: 11px;
+      --radius-lg: 14px;
+      --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
+      --shadow-md: 0 4px 6px -1px rgba(15, 23, 42, 0.08), 0 2px 4px -2px rgba(15, 23, 42, 0.05);
+    }
+
+    /* リセット＆iOS Safari最適化（ダブルタップズーム防止・選択防止） */
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      -webkit-tap-highlight-color: transparent;
+      touch-action: manipulation;
+    }
+
+    html, body {
+      height: 100vh;
+      height: 100dvh;
+      width: 100%;
+      overflow: hidden;
+      background-color: var(--bg-app);
+      color: var(--text-primary);
+      font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic", sans-serif;
+      font-size: 15px;
+      line-height: 1.35;
+      -webkit-text-size-adjust: 100%;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    #app {
+      height: 100vh;
+      height: 100dvh;
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    input, select, textarea {
+      user-select: auto;
+      -webkit-user-select: auto;
+      font-family: inherit;
+    }
+
+    button {
+      font-family: inherit;
+      cursor: pointer;
+      border: none;
+      background: none;
+      color: inherit;
+    }
+
+    /* ==========================================================================
+       初回ルームコード（合言葉）入力画面
+       ========================================================================== */
+    .room-gate-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 500;
+      background-color: #0f172a;
+      color: #ffffff;
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+
+    .room-gate-overlay.open {
+      display: flex;
+    }
+
+    .room-gate-card {
+      width: 100%;
+      max-width: 400px;
+      background: #ffffff;
+      color: var(--text-primary);
+      border-radius: 18px;
+      padding: 24px 20px;
+      box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.35);
+    }
+
+    .room-gate-title {
+      font-size: 19px;
+      font-weight: 900;
+      text-align: center;
+      margin-bottom: 8px;
+    }
+
+    .room-gate-desc {
+      font-size: 13px;
+      color: var(--text-secondary);
+      text-align: center;
+      margin-bottom: 18px;
+      line-height: 1.5;
+    }
+
+    /* ==========================================================================
+       ヘッダー（選手名・セッション切替・セット切替・同期状態）
+       ========================================================================== */
+    .app-header {
+      flex-shrink: 0;
+      z-index: 100;
+      background-color: #0f172a;
+      color: #ffffff;
+      padding-top: calc(var(--safe-top) + 4px);
+      padding-bottom: 5px;
+      padding-left: 10px;
+      padding-right: 10px;
+      box-shadow: var(--shadow-md);
+    }
+
+    .header-top-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+      margin-bottom: 5px;
+    }
+
+    .player-badge {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      background: rgba(255, 255, 255, 0.14);
+      padding: 3px 8px;
+      border-radius: 16px;
+      font-size: 12px;
+      font-weight: 700;
+      max-width: 42%;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      transition: background 0.15s;
+    }
+
+    .player-badge:active {
+      background: rgba(255, 255, 255, 0.25);
+    }
+
+    .session-selector-btn {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 4px;
+      background: rgba(255, 255, 255, 0.14);
+      padding: 3px 8px;
+      border-radius: var(--radius-sm);
+      font-size: 12px;
+      font-weight: 700;
+      color: #ffffff;
+      min-width: 0;
+      text-align: left;
+    }
+
+    .session-selector-btn:active {
+      background: rgba(255, 255, 255, 0.25);
+    }
+
+    .session-title-text {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .header-bottom-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+    }
+
+    /* セット選択バー */
+    .set-bar {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      overflow-x: auto;
+      scrollbar-width: none;
+    }
+    .set-bar::-webkit-scrollbar {
+      display: none;
+    }
+
+    .set-chip {
+      flex-shrink: 0;
+      padding: 2px 10px;
+      border-radius: 14px;
+      font-size: 11px;
+      font-weight: 800;
+      background: rgba(255, 255, 255, 0.12);
+      color: #cbd5e1;
+      border: 1px solid transparent;
+      transition: all 0.15s;
+    }
+
+    .set-chip.active {
+      background: #38bdf8;
+      color: #0f172a;
+      border-color: #7dd3fc;
+      box-shadow: 0 0 6px rgba(56, 189, 248, 0.4);
+    }
+
+    .set-add-btn {
+      flex-shrink: 0;
+      padding: 2px 8px;
+      border-radius: 14px;
+      font-size: 11px;
+      font-weight: 700;
+      background: rgba(255, 255, 255, 0.08);
+      color: #94a3b8;
+      border: 1px dashed rgba(255, 255, 255, 0.3);
+    }
+
+    .set-add-btn:active {
+      background: rgba(255, 255, 255, 0.2);
+      color: #ffffff;
+    }
+
+    /* 同期ステータス表示 */
+    .sync-status {
+      flex-shrink: 0;
+      font-size: 10px;
+      font-weight: 700;
+      padding: 2px 7px;
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.1);
+      color: #94a3b8;
+      white-space: nowrap;
+    }
+
+    .sync-status.connected {
+      color: #34d399;
+      background: rgba(16, 185, 129, 0.15);
+    }
+
+    /* ==========================================================================
+       メインコンテンツ領域
+       ========================================================================== */
+    .main-container {
+      flex: 1;
+      min-height: 0;
+      width: 100%;
+      max-width: 600px;
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .view-section {
+      display: none;
+    }
+
+    /* 記録タブ：100dvh内でスクロールなし・残り領域を均等配分 */
+    #view-record.view-section.active {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      padding: 6px 10px;
+      gap: 6px;
+    }
+
+    /* 集計タブ・履歴タブ：縦スクロール可能 */
+    #view-stats.view-section.active,
+    #view-history.view-section.active {
+      flex: 1;
+      min-height: 0;
+      display: block;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      padding: 10px 12px 20px;
+    }
+
+    /* ==========================================================================
+       タブ1：記録ビュー（1画面完結・柔軟伸縮グリッド）
+       ========================================================================== */
+    .scope-toggle-row {
+      flex-shrink: 0;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0 2px;
+      min-height: 22px;
+    }
+
+    .scope-label {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--text-secondary);
+    }
+
+    .scope-switch {
+      display: inline-flex;
+      background: var(--bg-subtle);
+      border-radius: 12px;
+      padding: 2px;
+    }
+
+    .scope-btn {
+      font-size: 10px;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 10px;
+      color: var(--text-secondary);
+    }
+
+    .scope-btn.active {
+      background: var(--bg-surface);
+      color: var(--text-primary);
+      box-shadow: var(--shadow-sm);
+    }
+
+    /* スキルブロックカード（残り高さを比例配分） */
+    .skill-card {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      background: var(--bg-surface);
+      border-radius: var(--radius-lg);
+      padding: 6px 8px;
+      box-shadow: var(--shadow-sm);
+      border: 1px solid var(--border-color);
+      border-left-width: 5px;
+    }
+
+    .skill-card.serve { flex: 2; border-left-color: var(--serve-accent); }
+    .skill-card.spike { flex: 2; border-left-color: var(--spike-accent); }
+    .skill-card.receive { flex: 1.25; border-left-color: var(--receive-accent); }
+
+    .skill-header {
+      flex-shrink: 0;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 4px;
+    }
+
+    .skill-title {
+      font-size: 13px;
+      font-weight: 900;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .skill-badge {
+      font-size: 12px;
+      font-weight: 900;
+      padding: 1px 8px;
+      border-radius: 10px;
+      background: var(--bg-app);
+      color: var(--text-primary);
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* 記録ボタン（残り高さいっぱいに伸縮・高さ44px以上保証） */
+    .action-grid-2x2 {
+      flex: 1;
+      min-height: 0;
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      grid-template-rows: repeat(2, minmax(44px, 1fr));
+      gap: 6px;
+    }
+
+    .action-grid-3 {
+      flex: 1;
+      min-height: 0;
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      grid-template-rows: minmax(44px, 1fr);
+      gap: 6px;
+    }
+
+    .record-btn {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 44px;
+      height: 100%;
+      padding: 3px 4px;
+      border-radius: var(--radius-md);
+      font-weight: 800;
+      border: 2px solid transparent;
+      box-shadow: 0 1px 0 rgba(0, 0, 0, 0.08);
+      transition: transform 0.08s ease, filter 0.08s ease;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .record-btn:active {
+      transform: scale(0.96);
+      filter: brightness(0.92);
+    }
+
+    .record-btn-main {
+      font-size: 14px;
+      line-height: 1.15;
+      letter-spacing: -0.01em;
+    }
+
+    .record-btn-sub {
+      font-size: 10px;
+      font-weight: 700;
+      opacity: 0.85;
+      margin-top: 1px;
+      line-height: 1.1;
+    }
+
+    /* 画面高さが低い端末（iPhone SE等）でも余裕を持って44px以上を保つ微調整 */
+    @media (max-height: 700px) {
+      .record-btn-sub {
+        display: none;
+      }
+      .skill-card {
+        padding: 5px 7px;
+      }
+      .skill-header {
+        margin-bottom: 3px;
+      }
+    }
+
+    /* ボタン配色バリエーション */
+    .btn-positive {
+      background-color: var(--res-positive-bg);
+      color: #064e3b;
+      border-color: var(--res-positive-border);
+    }
+    .btn-good {
+      background-color: var(--res-good-bg);
+      color: #0c4a6e;
+      border-color: var(--res-good-border);
+    }
+    .btn-neutral {
+      background-color: var(--res-neutral-bg);
+      color: #1e293b;
+      border-color: var(--res-neutral-border);
+    }
+    .btn-warn {
+      background-color: var(--res-warn-bg);
+      color: #78350f;
+      border-color: var(--res-warn-border);
+    }
+    .btn-negative {
+      background-color: var(--res-negative-bg);
+      color: #7f1d1d;
+      border-color: var(--res-negative-border);
+    }
+
+    /* 1つ戻す（UNDO）操作バー */
+    .undo-bar {
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      background: var(--bg-surface);
+      padding: 6px 10px;
+      border-radius: var(--radius-md);
+      border: 1px solid var(--border-color);
+      box-shadow: var(--shadow-sm);
+    }
+
+    .last-play-info {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .last-play-label {
+      font-size: 9px;
+      font-weight: 700;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      line-height: 1.1;
+    }
+
+    .last-play-text {
+      font-size: 12px;
+      font-weight: 800;
+      color: var(--text-primary);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .undo-btn {
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      min-height: 36px;
+      padding: 6px 12px;
+      border-radius: var(--radius-md);
+      background-color: #1e293b;
+      color: #ffffff;
+      font-size: 13px;
+      font-weight: 800;
+      box-shadow: var(--shadow-sm);
+      transition: transform 0.1s, opacity 0.15s;
+    }
+
+    .undo-btn:active:not(:disabled) {
+      transform: scale(0.95);
+      background-color: #0f172a;
+    }
+
+    .undo-btn:disabled {
+      opacity: 0.35;
+      cursor: not-allowed;
+    }
+
+    /* ==========================================================================
+       タブ2：集計・推移ビュー
+       ========================================================================== */
+    .card {
+      background: var(--bg-surface);
+      border-radius: var(--radius-lg);
+      padding: 14px;
+      margin-bottom: 14px;
+      box-shadow: var(--shadow-sm);
+      border: 1px solid var(--border-color);
+    }
+
+    .card-title-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+      gap: 8px;
+    }
+
+    .card-title {
+      font-size: 16px;
+      font-weight: 900;
+      color: var(--text-primary);
+    }
+
+    /* セットフィルタピル */
+    .filter-pills {
+      display: flex;
+      gap: 6px;
+      overflow-x: auto;
+      padding-bottom: 8px;
+      margin-bottom: 8px;
+      scrollbar-width: none;
+    }
+    .filter-pills::-webkit-scrollbar { display: none; }
+
+    .filter-pill {
+      flex-shrink: 0;
+      padding: 5px 12px;
+      border-radius: 16px;
+      font-size: 12px;
+      font-weight: 800;
+      background: var(--bg-app);
+      color: var(--text-secondary);
+      border: 1px solid var(--border-color);
+    }
+
+    .filter-pill.active {
+      background: var(--primary);
+      color: #ffffff;
+      border-color: var(--primary);
+    }
+
+    /* 集計セクション */
+    .stat-group {
+      margin-bottom: 14px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--bg-subtle);
+    }
+    .stat-group:last-child {
+      margin-bottom: 0;
+      padding-bottom: 0;
+      border-bottom: none;
+    }
+
+    .stat-group-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      margin-bottom: 8px;
+    }
+
+    .stat-group-name {
+      font-size: 14px;
+      font-weight: 900;
+    }
+
+    .stat-group-total {
+      font-size: 13px;
+      font-weight: 800;
+      color: var(--text-secondary);
+    }
+
+    /* プログレスバー（構成比可視化） */
+    .stacked-bar {
+      display: flex;
+      height: 12px;
+      border-radius: 6px;
+      overflow: hidden;
+      background: var(--bg-subtle);
+      margin-bottom: 10px;
+    }
+
+    .bar-seg-pos { background: var(--res-positive); }
+    .bar-seg-good { background: var(--res-good); }
+    .bar-seg-neu { background: #94a3b8; }
+    .bar-seg-warn { background: var(--res-warn); }
+    .bar-seg-neg { background: var(--res-negative); }
+
+    /* KPIグリッド */
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 8px;
+    }
+
+    .kpi-box {
+      background: var(--bg-app);
+      padding: 8px 10px;
+      border-radius: var(--radius-sm);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .kpi-label {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--text-secondary);
+    }
+
+    .kpi-value {
+      font-size: 15px;
+      font-weight: 900;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .kpi-sub {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-muted);
+      margin-left: 3px;
+    }
+
+    .text-pos { color: var(--res-positive); }
+    .text-neg { color: var(--res-negative); }
+
+    /* 推移グラフ（自前SVG） */
+    .chart-wrapper {
+      width: 100%;
+      overflow-x: auto;
+      margin-top: 8px;
+    }
+
+    .chart-legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      font-size: 11px;
+      font-weight: 700;
+      margin-bottom: 6px;
+      color: var(--text-secondary);
+    }
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .legend-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+    }
+
+    /* 過去セッション一覧テーブル */
+    .session-history-list {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .session-stat-card {
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      padding: 10px 12px;
+      background: var(--bg-app);
+      transition: border-color 0.15s;
+    }
+
+    .session-stat-card.current {
+      border: 2px solid var(--primary);
+      background: #f8fafc;
+    }
+
+    .session-stat-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 8px;
+      margin-bottom: 6px;
+    }
+
+    .session-stat-name {
+      font-size: 14px;
+      font-weight: 900;
+      color: var(--text-primary);
+    }
+
+    .session-stat-meta {
+      font-size: 11px;
+      color: var(--text-muted);
+      font-weight: 600;
+    }
+
+    .session-mini-metrics {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 6px;
+      margin-top: 6px;
+    }
+
+    .mini-metric {
+      background: var(--bg-surface);
+      padding: 5px 6px;
+      border-radius: 6px;
+      font-size: 11px;
+    }
+
+    .mini-metric-title {
+      font-weight: 800;
+      color: var(--text-secondary);
+      margin-bottom: 2px;
+    }
+
+    .mini-metric-body {
+      font-weight: 800;
+      font-variant-numeric: tabular-nums;
+      line-height: 1.3;
+    }
+
+    /* ==========================================================================
+       タブ3：履歴ビュー
+       ========================================================================== */
+    .history-controls {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+
+    .history-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .history-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: var(--bg-surface);
+      padding: 10px 12px;
+      border-radius: var(--radius-md);
+      border: 1px solid var(--border-color);
+      box-shadow: var(--shadow-sm);
+      gap: 8px;
+    }
+
+    .history-num {
+      font-size: 12px;
+      font-weight: 800;
+      color: var(--text-muted);
+      min-width: 32px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .history-main {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .history-badges {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 2px;
+    }
+
+    .badge-set {
+      font-size: 10px;
+      font-weight: 800;
+      background: #e2e8f0;
+      color: #334155;
+      padding: 1px 6px;
+      border-radius: 4px;
+    }
+
+    .badge-skill {
+      font-size: 11px;
+      font-weight: 800;
+      color: var(--text-secondary);
+    }
+
+    .history-result {
+      font-size: 14px;
+      font-weight: 900;
+    }
+
+    .history-time {
+      font-size: 11px;
+      color: var(--text-muted);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .delete-play-btn {
+      padding: 8px 10px;
+      border-radius: var(--radius-sm);
+      color: var(--res-negative);
+      background: var(--res-negative-bg);
+      font-size: 12px;
+      font-weight: 800;
+      flex-shrink: 0;
+    }
+
+    .delete-play-btn:active {
+      filter: brightness(0.9);
+    }
+
+    /* ==========================================================================
+       下部ナビゲーションバー（3タブ）
+       ========================================================================== */
+    .bottom-nav {
+      flex-shrink: 0;
+      z-index: 100;
+      background: var(--bg-surface);
+      border-top: 1px solid var(--border-color);
+      padding-bottom: var(--safe-bottom);
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      box-shadow: 0 -2px 10px rgba(15, 23, 42, 0.05);
+    }
+
+    .nav-item {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: var(--tabbar-height);
+      color: var(--text-muted);
+      font-size: 11px;
+      font-weight: 800;
+      gap: 2px;
+      transition: color 0.15s;
+    }
+
+    .nav-item.active {
+      color: var(--primary);
+    }
+
+    .nav-icon {
+      width: 20px;
+      height: 20px;
+    }
+
+    /* ==========================================================================
+       モーダル＆トースト通知
+       ========================================================================== */
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      z-index: 200;
+      background: rgba(15, 23, 42, 0.6);
+      display: none;
+      align-items: flex-end;
+      justify-content: center;
+      backdrop-filter: blur(2px);
+    }
+
+    .modal-backdrop.open {
+      display: flex;
+    }
+
+    .modal-sheet {
+      width: 100%;
+      max-width: 600px;
+      background: var(--bg-surface);
+      border-top-left-radius: 20px;
+      border-top-right-radius: 20px;
+      padding: 18px 16px calc(var(--safe-bottom) + 20px);
+      max-height: 85vh;
+      overflow-y: auto;
+      animation: slideUp 0.2s ease-out;
+    }
+
+    @keyframes slideUp {
+      from { transform: translateY(100%); }
+      to { transform: translateY(0); }
+    }
+
+    .modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 14px;
+    }
+
+    .modal-title {
+      font-size: 17px;
+      font-weight: 900;
+    }
+
+    .modal-close {
+      padding: 6px 12px;
+      background: var(--bg-app);
+      border-radius: 16px;
+      font-size: 13px;
+      font-weight: 800;
+      color: var(--text-secondary);
+    }
+
+    .form-group {
+      margin-bottom: 14px;
+    }
+
+    .form-label {
+      display: block;
+      font-size: 12px;
+      font-weight: 800;
+      color: var(--text-secondary);
+      margin-bottom: 6px;
+    }
+
+    .form-input {
+      width: 100%;
+      padding: 11px 12px;
+      border: 1.5px solid var(--border-color);
+      border-radius: var(--radius-md);
+      font-size: 16px; /* iOSズーム防止のため16px以上 */
+      font-weight: 700;
+      color: var(--text-primary);
+      background: var(--bg-surface);
+    }
+
+    .form-input:focus {
+      outline: none;
+      border-color: var(--primary);
+    }
+
+    .btn-primary-full {
+      width: 100%;
+      padding: 13px;
+      border-radius: var(--radius-md);
+      background: var(--primary);
+      color: #ffffff;
+      font-size: 15px;
+      font-weight: 800;
+      text-align: center;
+    }
+
+    .btn-primary-full:active {
+      filter: brightness(0.9);
+    }
+
+    .btn-secondary-sm {
+      padding: 7px 12px;
+      border-radius: var(--radius-sm);
+      background: var(--bg-subtle);
+      color: var(--text-primary);
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .btn-danger-sm {
+      padding: 7px 12px;
+      border-radius: var(--radius-sm);
+      background: var(--res-negative-bg);
+      color: var(--res-negative);
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .session-manage-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 12px;
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      margin-bottom: 8px;
+      gap: 8px;
+    }
+
+    .session-manage-item.active {
+      border-color: var(--primary);
+      background: var(--primary-light);
+    }
+
+    /* トースト通知 */
+    .toast-container {
+      position: fixed;
+      top: calc(var(--safe-top) + 64px);
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 300;
+      pointer-events: none;
+      width: 90%;
+      max-width: 360px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    .toast {
+      background: rgba(15, 23, 42, 0.94);
+      color: #ffffff;
+      padding: 10px 18px;
+      border-radius: 24px;
+      font-size: 14px;
+      font-weight: 800;
+      box-shadow: 0 8px 20px rgba(0, 0, 0, 0.25);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      animation: toastPop 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+      margin-bottom: 6px;
+    }
+
+    @keyframes toastPop {
+      from { opacity: 0; transform: translateY(-10px) scale(0.92); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: 32px 16px;
+      color: var(--text-muted);
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .backup-box {
+      margin-top: 16px;
+      padding-top: 14px;
+      border-top: 1px solid var(--border-color);
+    }
+
+    .backup-actions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-top: 8px;
+    }
+
+    .room-code-box {
+      margin-top: 16px;
+      padding-top: 14px;
+      border-top: 1px solid var(--border-color);
+    }
+
+    .room-code-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      background: var(--bg-app);
+      padding: 10px 12px;
+      border-radius: var(--radius-md);
+      border: 1px solid var(--border-color);
+    }
+
+    .room-code-value {
+      font-size: 15px;
+      font-weight: 900;
+      color: var(--primary);
+      word-break: break-all;
+    }
+  </style>
+</head>
+<body>
+  <!-- 初回起動時：合言葉（ルームコード）入力画面 -->
+  <div class="room-gate-overlay" id="roomGateOverlay">
+    <div class="room-gate-card">
+      <div style="text-align:center; font-size:32px; margin-bottom:6px;">🏐</div>
+      <h1 class="room-gate-title">合言葉を入力してください</h1>
+      <p class="room-gate-desc">
+        同じ合言葉を入力した端末同士で、記録データがリアルタイムに共有されます。
+      </p>
+      <div class="form-group">
+        <label class="form-label" for="initialRoomCodeInput">合言葉（ルームコード）</label>
+        <input type="text" id="initialRoomCodeInput" class="form-input" placeholder="例：haruto-2026" maxlength="40" autocomplete="off">
+      </div>
+      <button type="button" class="btn-primary-full" id="startWithRoomCodeBtn">はじめる</button>
+    </div>
+  </div>
+
+  <div id="app">
+
+    <!-- 固定ヘッダー：選手名・セッション切替・セット切替・同期状態 -->
+    <header class="app-header">
+      <div class="header-top-row">
+        <button type="button" class="player-badge" id="openPlayerModalBtn" aria-label="選手名を編集">
+          <span>🏐</span>
+          <span id="headerPlayerName">選手名未設定</span>
+          <span style="font-size:10px; opacity:0.8;">✎</span>
+        </button>
+
+        <button type="button" class="session-selector-btn" id="openSessionModalBtn" aria-label="試合セッションを切り替え">
+          <span class="session-title-text" id="headerSessionName">試合を読み込み中...</span>
+          <span style="font-size:11px; flex-shrink:0;">▼ 切替</span>
+        </button>
+      </div>
+
+      <!-- セット番号切り替えバー ＋ 同期インジケータ -->
+      <div class="header-bottom-row">
+        <div class="set-bar" id="setBar">
+          <!-- JSで動的生成 -->
+        </div>
+        <div class="sync-status" id="syncStatusIndicator">○接続を待っています</div>
+      </div>
+    </header>
+
+    <!-- トーストフィードバック -->
+    <div class="toast-container" id="toastContainer"></div>
+
+    <!-- メインコンテンツ -->
+    <main class="main-container">
+
+      <!-- ====================================================================
+           VIEW 1: 記録画面（片手1タップ記録・100dvh完結）
+           ==================================================================== -->
+      <section id="view-record" class="view-section active">
+        <!-- 件数カウント表示スコープ切替 -->
+        <div class="scope-toggle-row">
+          <span class="scope-label" id="recordScopeLabel">表示本数：全セット合計</span>
+          <div class="scope-switch">
+            <button type="button" class="scope-btn active" data-scope="all" id="scopeAllBtn">全セット</button>
+            <button type="button" class="scope-btn" data-scope="set" id="scopeSetBtn">現在のSET</button>
+          </div>
+        </div>
+
+        <!-- スキル1：サーブ -->
+        <div class="skill-card serve">
+          <div class="skill-header">
+            <div class="skill-title" style="color:var(--serve-accent);">
+              <span>🎯 サーブ</span>
+            </div>
+            <span class="skill-badge" id="cardServeBadge">0本</span>
+          </div>
+          <div class="action-grid-2x2">
+            <button type="button" class="record-btn btn-positive" data-skill="serve" data-result="ace">
+              <span class="record-btn-main">エース</span>
+              <span class="record-btn-sub">ノータッチ・得点</span>
+            </button>
+            <button type="button" class="record-btn btn-good" data-skill="serve" data-result="break">
+              <span class="record-btn-main">相手を崩した</span>
+              <span class="record-btn-sub">チャンスボール等</span>
+            </button>
+            <button type="button" class="record-btn btn-neutral" data-skill="serve" data-result="continue">
+              <span class="record-btn-main">続行</span>
+              <span class="record-btn-sub">普通に返球された</span>
+            </button>
+            <button type="button" class="record-btn btn-negative" data-skill="serve" data-result="miss">
+              <span class="record-btn-main">ミス</span>
+              <span class="record-btn-sub">ネット・アウト</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- スキル2：スパイク -->
+        <div class="skill-card spike">
+          <div class="skill-header">
+            <div class="skill-title" style="color:var(--spike-accent);">
+              <span>⚡ スパイク</span>
+            </div>
+            <span class="skill-badge" id="cardSpikeBadge">0本</span>
+          </div>
+          <div class="action-grid-2x2">
+            <button type="button" class="record-btn btn-positive" data-skill="spike" data-result="kill">
+              <span class="record-btn-main">決定</span>
+              <span class="record-btn-sub">スパイク得点</span>
+            </button>
+            <button type="button" class="record-btn btn-neutral" data-skill="spike" data-result="continue">
+              <span class="record-btn-main">続行</span>
+              <span class="record-btn-sub">拾われた・ラリー</span>
+            </button>
+            <button type="button" class="record-btn btn-warn" data-skill="spike" data-result="blocked">
+              <span class="record-btn-main">ブロックされた</span>
+              <span class="record-btn-sub">シャットアウト</span>
+            </button>
+            <button type="button" class="record-btn btn-negative" data-skill="spike" data-result="miss">
+              <span class="record-btn-main">ミス</span>
+              <span class="record-btn-sub">ネット・アウト</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- スキル3：サーブレシーブ -->
+        <div class="skill-card receive">
+          <div class="skill-header">
+            <div class="skill-title" style="color:var(--receive-accent);">
+              <span>🛡️ サーブレシーブ</span>
+            </div>
+            <span class="skill-badge" id="cardReceiveBadge">0本</span>
+          </div>
+          <div class="action-grid-3">
+            <button type="button" class="record-btn btn-positive" data-skill="receive" data-result="passA">
+              <span class="record-btn-main">Aパス</span>
+              <span class="record-btn-sub">セッターに返球</span>
+            </button>
+            <button type="button" class="record-btn btn-neutral" data-skill="receive" data-result="passB">
+              <span class="record-btn-main">Bパス</span>
+              <span class="record-btn-sub">繋がった</span>
+            </button>
+            <button type="button" class="record-btn btn-negative" data-skill="receive" data-result="miss">
+              <span class="record-btn-main">失点</span>
+              <span class="record-btn-sub">直接失点・弾き</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- 直前の記録を取り消す「戻す」バー -->
+        <div class="undo-bar">
+          <div class="last-play-info">
+            <div class="last-play-label">直前の記録</div>
+            <div class="last-play-text" id="lastPlayText">まだ記録がありません</div>
+          </div>
+          <button type="button" class="undo-btn" id="undoBtn" disabled>
+            <span>↩</span>
+            <span>1つ戻す</span>
+          </button>
+        </div>
+      </section>
+
+      <!-- ====================================================================
+           VIEW 2: 集計・推移画面
+           ==================================================================== -->
+      <section id="view-stats" class="view-section">
+        <!-- 現在のセッション集計 -->
+        <div class="card">
+          <div class="card-title-row">
+            <div>
+              <h2 class="card-title" id="statsSessionTitle">試合集計</h2>
+              <div style="font-size:12px; color:var(--text-secondary); font-weight:800; margin-top:2px;" id="statsSessionPlayer">🏐 選手：未設定</div>
+            </div>
+            <span class="skill-badge" id="statsTotalPlays">計 0 プレー</span>
+          </div>
+
+          <!-- セット別フィルタ -->
+          <div class="filter-pills" id="statsSetFilterBar">
+            <!-- JSで生成 -->
+          </div>
+
+          <div id="currentStatsContent">
+            <!-- JSで集計結果を描画 -->
+          </div>
+        </div>
+
+        <!-- 過去セッション推移グラフ -->
+        <div class="card">
+          <div class="card-title-row">
+            <h2 class="card-title">📈 試合ごとの推移（率 %）</h2>
+          </div>
+          <div class="chart-legend">
+            <div class="legend-item"><span class="legend-dot" style="background:#0284c7;"></span>サーブエース率</div>
+            <div class="legend-item"><span class="legend-dot" style="background:#d97706;"></span>スパイク決定率</div>
+            <div class="legend-item"><span class="legend-dot" style="background:#059669;"></span>レシーブAパス率</div>
+          </div>
+          <div class="chart-wrapper" id="trendChartContainer">
+            <!-- 自前SVGグラフ描画 -->
+          </div>
+        </div>
+
+        <!-- 全セッション一覧比較 -->
+        <div class="card">
+          <div class="card-title-row">
+            <h2 class="card-title">📋 過去の試合一覧</h2>
+            <button type="button" class="btn-secondary-sm" id="newSessionFromStatsBtn">＋ 新規試合</button>
+          </div>
+          <div class="session-history-list" id="allSessionsList">
+            <!-- JSで描画 -->
+          </div>
+        </div>
+      </section>
+
+      <!-- ====================================================================
+           VIEW 3: 履歴画面（個別削除対応）
+           ==================================================================== -->
+      <section id="view-history" class="view-section">
+        <div class="card" style="padding: 12px;">
+          <div class="history-controls">
+            <div>
+              <h2 class="card-title">プレー履歴</h2>
+              <div style="font-size:11px; color:var(--text-muted); font-weight:700;" id="historySessionSub">現在の試合の記録一覧</div>
+            </div>
+            <button type="button" class="btn-secondary-sm" id="toggleSortBtn">新しい順 ▼</button>
+          </div>
+
+          <div class="history-list" id="historyList">
+            <!-- JSで履歴リスト生成 -->
+          </div>
+        </div>
+      </section>
+
+    </main>
+
+    <!-- 下部タブナビゲーション -->
+    <nav class="bottom-nav" aria-label="メインナビゲーション">
+      <button type="button" class="nav-item active" data-tab="record">
+        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"></circle>
+          <circle cx="12" cy="12" r="3"></circle>
+        </svg>
+        <span>記録</span>
+      </button>
+      <button type="button" class="nav-item" data-tab="stats">
+        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="18" y1="20" x2="18" y2="10"></line>
+          <line x1="12" y1="20" x2="12" y2="4"></line>
+          <line x1="6" y1="20" x2="6" y2="14"></line>
+        </svg>
+        <span>集計・推移</span>
+      </button>
+      <button type="button" class="nav-item" data-tab="history">
+        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="8" y1="6" x2="21" y2="6"></line>
+          <line x1="8" y1="12" x2="21" y2="12"></line>
+          <line x1="8" y1="18" x2="21" y2="18"></line>
+          <line x1="3" y1="6" x2="3.01" y2="6"></line>
+          <line x1="3" y1="12" x2="3.01" y2="12"></line>
+          <line x1="3" y1="18" x2="3.01" y2="18"></line>
+        </svg>
+        <span>履歴</span>
+      </button>
+    </nav>
+
+  </div>
+
+  <!-- ======================================================================
+       モーダル1：選手名設定 & 合言葉 & データバックアップ
+       ====================================================================== -->
+  <div class="modal-backdrop" id="playerModal">
+    <div class="modal-sheet">
+      <div class="modal-header">
+        <h3 class="modal-title">選手設定・データ管理</h3>
+        <button type="button" class="modal-close" data-close="playerModal">閉じる</button>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="playerNameInput">記録対象の選手名（1名）</label>
+        <input type="text" id="playerNameInput" class="form-input" placeholder="例：田中 はると (#4)" maxlength="24">
+      </div>
+      <button type="button" class="btn-primary-full" id="savePlayerBtn">選手名を保存</button>
+
+      <!-- 合言葉（ルームコード）設定欄 -->
+      <div class="room-code-box">
+        <div class="form-label">合言葉（リアルタイム同期ルーム）</div>
+        <div class="room-code-row">
+          <span class="room-code-value" id="currentRoomCodeDisplay">未設定</span>
+          <button type="button" class="btn-secondary-sm" id="openChangeRoomBtn">変更する</button>
+        </div>
+        <div id="changeRoomForm" style="display:none; margin-top:10px; background:var(--bg-app); padding:10px; border-radius:var(--radius-md);">
+          <label class="form-label" for="editRoomCodeInput">新しい合言葉を入力</label>
+          <div style="display:flex; gap:8px;">
+            <input type="text" id="editRoomCodeInput" class="form-input" placeholder="新しい合言葉" maxlength="40" autocomplete="off">
+            <button type="button" class="btn-primary-full" id="applyRoomCodeBtn" style="width:auto; flex-shrink:0; padding:0 16px;">保存</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="backup-box">
+        <div class="form-label">データバックアップ（JSON保存・復元）</div>
+        <p style="font-size:11px; color:var(--text-muted); margin-bottom:6px;">
+          データはクラウドにリアルタイム同期されます。バックアップや旧データの移行には下記をご利用ください。
+        </p>
+        <div class="backup-actions">
+          <button type="button" class="btn-secondary-sm" id="exportJsonBtn" style="padding:10px;">📤 バックアップ保存</button>
+          <label class="btn-secondary-sm" style="padding:10px; text-align:center; cursor:pointer;">
+            📥 データ復元
+            <input type="file" id="importJsonInput" accept=".json,application/json" style="display:none;">
+          </label>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ======================================================================
+       モーダル2：セッション（試合）新規作成・切り替え・削除・タイトル変更
+       ====================================================================== -->
+  <div class="modal-backdrop" id="sessionModal">
+    <div class="modal-sheet">
+      <div class="modal-header">
+        <h3 class="modal-title">試合セッション管理</h3>
+        <button type="button" class="modal-close" data-close="sessionModal">閉じる</button>
+      </div>
+
+      <!-- 選択中セッションの試合名変更 -->
+      <div style="background:var(--bg-app); padding:12px; border-radius:var(--radius-md); margin-bottom:12px;">
+        <div class="form-label" for="editSessionTitleInput">選択中の試合名を変更</div>
+        <div style="display:flex; gap:8px;">
+          <input type="text" id="editSessionTitleInput" class="form-input" placeholder="試合名" maxlength="40">
+          <button type="button" class="btn-primary-full" id="saveSessionTitleBtn" style="width:auto; flex-shrink:0; padding:0 16px;">変更</button>
+        </div>
+      </div>
+
+      <!-- 新規作成フォーム -->
+      <div style="background:var(--bg-app); padding:12px; border-radius:var(--radius-md); margin-bottom:16px;">
+        <div class="form-label">新しい試合を作成</div>
+        <div class="form-group" style="margin-bottom:8px;">
+          <input type="text" id="newSessionNameInput" class="form-input" placeholder="例：2026/11/14 〇〇ジュニア戦" maxlength="40">
+        </div>
+        <div class="form-group" style="margin-bottom:8px;">
+          <label class="form-label" for="newSessionPlayerInput" style="margin-bottom:4px;">記録対象の選手名</label>
+          <input type="text" id="newSessionPlayerInput" class="form-input" placeholder="例：田中 はると (#4)" maxlength="24">
+        </div>
+        <button type="button" class="btn-primary-full" id="createSessionBtn" style="padding:10px;">＋ この内容で記録を開始</button>
+      </div>
+
+      <!-- 既存セッション一覧 -->
+      <div class="form-label">保存済みの試合（タップで切り替え）</div>
+      <div id="modalSessionList">
+        <!-- JSで描画 -->
+      </div>
+    </div>
+  </div>
+
+  <!-- ======================================================================
+       アプリケーションロジック（Firebase Realtime Database 同期版 v2）
+       ====================================================================== -->
+  <script>
+    (function () {
+      'use strict';
+
+      // ----------------------------------------------------------------------
+      // Firebase 設定・初期化
+      // ----------------------------------------------------------------------
+      const firebaseConfig = {
+        apiKey: "AIzaSyBjW-cpb1sbaQBJ9slmFdODvrGJYvLV_80",
+        authDomain: "play-tracker-647c4.firebaseapp.com",
+        databaseURL: "https://play-tracker-647c4-default-rtdb.firebaseio.com",
+        projectId: "play-tracker-647c4",
+        storageBucket: "play-tracker-647c4.firebasestorage.app",
+        messagingSenderId: "1035369813960",
+        appId: "1:1035369813960:web:95b4842ea77ca91bf9d2fd"
+      };
+
+      firebase.initializeApp(firebaseConfig);
+      const db = firebase.database();
+
+      // ----------------------------------------------------------------------
+      // 定数・マスター定義
+      // ----------------------------------------------------------------------
+      const ROOM_CODE_STORAGE_KEY = 'vb_room_code';
+
+      const SKILL_META = {
+        serve: {
+          label: 'サーブ',
+          results: {
+            ace:      { label: 'エース',       type: 'positive' },
+            break:    { label: '相手を崩した', type: 'good' },
+            continue: { label: '続行',         type: 'neutral' },
+            miss:     { label: 'ミス',         type: 'negative' }
+          }
+        },
+        spike: {
+          label: 'スパイク',
+          results: {
+            kill:     { label: '決定',           type: 'positive' },
+            continue: { label: '続行',           type: 'neutral' },
+            blocked:  { label: 'ブロックされた', type: 'warn' },
+            miss:     { label: 'ミス',           type: 'negative' }
+          }
+        },
+        receive: {
+          label: 'サーブレシーブ',
+          results: {
+            passA: { label: 'Aパス', type: 'positive' },
+            passB: { label: 'Bパス', type: 'neutral' },
+            miss:  { label: '失点',  type: 'negative' }
+          }
+        }
+      };
+
+      // ----------------------------------------------------------------------
+      // 状態管理（State）
+      // ----------------------------------------------------------------------
+      let roomCode = '';
+      let roomRef = null;
+      let isCreatingInitialSession = false;
+
+      let state = {
+        playerName: '',
+        currentSessionId: null,
+        currentSet: 1,
+        sessions: [] // { id, name, playerName, createdAt, maxSet, plays: [{ id, set, skill, result, ts, timestamp }] }
+      };
+
+      // UI一時状態
+      let uiState = {
+        activeTab: 'record',
+        recordCountScope: 'all', // 'all' | 'set'
+        statsSetFilter: 'all',   // 'all' | number
+        historySortDesc: true    // true: 新しい順, false: 古い順
+      };
+
+      // ----------------------------------------------------------------------
+      // ユーティリティ関数
+      // ----------------------------------------------------------------------
+      function formatTodayPrefix() {
+        const d = new Date();
+        const yyyy = d.getFullYear();
+        const mm = String(d.getMonth() + 1).padStart(2, '0');
+        const dd = String(d.getDate()).padStart(2, '0');
+        return `${yyyy}/${mm}/${dd}`;
+      }
+
+      function formatTime(tsValue) {
+        if (!tsValue) return '--:--:--';
+        const d = new Date(tsValue);
+        if (isNaN(d.getTime())) return '--:--:--';
+        const hh = String(d.getHours()).padStart(2, '0');
+        const min = String(d.getMinutes()).padStart(2, '0');
+        const ss = String(d.getSeconds()).padStart(2, '0');
+        return `${hh}:${min}:${ss}`;
+      }
+
+      function generateId(prefix) {
+        return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+      }
+
+      function sanitizeRoomCode(raw) {
+        // Firebase Realtime Database のパス禁止文字（. # $ [ ] /）を除去
+        return String(raw || '').trim().replace(/[.#$\[\]\/]/g, '_');
+      }
+
+      function calcRate(part, total) {
+        if (!total || total === 0) return '0.0';
+        return ((part / total) * 100).toFixed(1);
+      }
+
+      function calcRateNum(part, total) {
+        if (!total || total === 0) return 0;
+        return Math.round((part / total) * 1000) / 10;
+      }
+
+      function triggerHaptic() {
+        if (navigator.vibrate) {
+          try { navigator.vibrate(18); } catch (e) {}
+        }
+      }
+
+      function showToast(message, isUndo = false) {
+        const container = document.getElementById('toastContainer');
+        const toast = document.createElement('div');
+        toast.className = 'toast';
+        toast.style.backgroundColor = isUndo ? 'rgba(185, 28, 28, 0.95)' : 'rgba(15, 23, 42, 0.94)';
+        toast.textContent = message;
+        container.innerHTML = '';
+        container.appendChild(toast);
+        setTimeout(() => {
+          if (toast.parentNode) toast.remove();
+        }, 1600);
+      }
+
+      function getCurrentSession() {
+        if (!state.sessions || state.sessions.length === 0) return null;
+        return state.sessions.find(s => s.id === state.currentSessionId) || state.sessions[0];
+      }
+
+      function getSessionPlayerName(session) {
+        if (!session) return state.playerName || '';
+        return typeof session.playerName === 'string' ? session.playerName : (state.playerName || '');
+      }
+
+      // ----------------------------------------------------------------------
+      // Firebase Realtime Database 接続・リスナー管理
+      // ----------------------------------------------------------------------
+      function initConnectionMonitor() {
+        const connectedRef = db.ref('.info/connected');
+        const indicator = document.getElementById('syncStatusIndicator');
+        connectedRef.on('value', (snap) => {
+          if (snap.val() === true) {
+            indicator.textContent = '●同期しています';
+            indicator.classList.add('connected');
+          } else {
+            indicator.textContent = '○接続を待っています';
+            indicator.classList.remove('connected');
+          }
+        });
+      }
+
+      function connectToRoom(code) {
+        if (!code) return;
+
+        // 既存リスナー解除
+        if (roomRef) {
+          roomRef.off();
+          roomRef = null;
+        }
+
+        roomCode = code;
+        isCreatingInitialSession = false;
+        roomRef = db.ref(`rooms/${roomCode}`);
+
+        roomRef.on('value', (snapshot) => {
+          const val = snapshot.val();
+          const sessionsObj = val && val.sessions ? val.sessions : null;
+
+          if (!sessionsObj || Object.keys(sessionsObj).length === 0) {
+            state.sessions = [];
+            if (!isCreatingInitialSession) {
+              isCreatingInitialSession = true;
+              const newId = generateId('sess');
+              const initialData = {
+                playerName: state.playerName || '',
+                title: `${formatTodayPrefix()} 練習試合`,
+                setCount: 2,
+                createdAt: Date.now()
+              };
+              state.currentSessionId = newId;
+              state.currentSet = 1;
+              db.ref(`rooms/${roomCode}/sessions/${newId}`).set(initialData)
+                .catch((err) => {
+                  isCreatingInitialSession = false;
+                  console.error('初期セッション作成エラー:', err);
+                  showToast('データ初期化に失敗しました', true);
+                });
+            }
+            return;
+          }
+
+          isCreatingInitialSession = false;
+
+          // rooms/<code>/sessions/<sessionId> を配列に変換（作成日時の新しい順）
+          const loadedSessions = Object.keys(sessionsObj).map((sessId) => {
+            const sData = sessionsObj[sessId] || {};
+            const playsObj = sData.plays || {};
+            const playsList = Object.keys(playsObj).map((pushKey) => {
+              const p = playsObj[pushKey] || {};
+              const tsVal = typeof p.ts === 'number' ? p.ts : (p.timestamp ? Date.parse(p.timestamp) || 0 : 0);
+              return {
+                id: pushKey,
+                set: Number(p.set) || 1,
+                category: p.category || p.skill || 'serve',
+                skill: p.category || p.skill || 'serve',
+                result: p.result || 'continue',
+                ts: tsVal,
+                timestamp: tsVal ? new Date(tsVal).toISOString() : ''
+              };
+            });
+
+            // ts昇順（時系列順）にソート
+            playsList.sort((a, b) => a.ts - b.ts);
+
+            const createdAtVal = typeof sData.createdAt === 'number'
+              ? sData.createdAt
+              : (sData.createdAt ? Date.parse(sData.createdAt) || 0 : 0);
+
+            return {
+              id: sessId,
+              name: sData.title || sData.name || `${formatTodayPrefix()} 試合`,
+              title: sData.title || sData.name || `${formatTodayPrefix()} 試合`,
+              playerName: typeof sData.playerName === 'string' ? sData.playerName : '',
+              setCount: Number(sData.setCount || sData.maxSet) || 2,
+              maxSet: Number(sData.setCount || sData.maxSet) || 2,
+              createdAt: createdAtVal,
+              plays: playsList
+            };
+          });
+
+          // 新しいセッションが上に来るよう降順ソート
+          loadedSessions.sort((a, b) => b.createdAt - a.createdAt);
+          state.sessions = loadedSessions;
+
+          // 選択中セッションの維持（存在しない場合のみ先頭を選択）
+          if (!state.currentSessionId || !state.sessions.some(s => s.id === state.currentSessionId)) {
+            state.currentSessionId = state.sessions[0].id;
+            state.currentSet = 1;
+          }
+
+          const currentSess = getCurrentSession();
+          if (currentSess && typeof currentSess.playerName === 'string') {
+            state.playerName = currentSess.playerName;
+          }
+
+          renderAll();
+
+          // セッション管理モーダルが開いている場合はリストも最新化
+          if (document.getElementById('sessionModal').classList.contains('open')) {
+            renderSessionModalList();
+          }
+        }, (error) => {
+          console.error('Firebase 同期エラー:', error);
+          showToast('同期エラーが発生しました', true);
+        });
+      }
+
+      // ----------------------------------------------------------------------
+      // 集計計算ロジック
+      // ----------------------------------------------------------------------
+      function computeStats(plays) {
+        const stats = {
+          total: plays.length,
+          serve: { total: 0, ace: 0, break: 0, continue: 0, miss: 0 },
+          spike: { total: 0, kill: 0, continue: 0, blocked: 0, miss: 0 },
+          receive: { total: 0, passA: 0, passB: 0, miss: 0 }
+        };
+
+        for (const p of plays) {
+          const cat = p.category || p.skill;
+          if (cat === 'serve') {
+            stats.serve.total++;
+            if (stats.serve[p.result] !== undefined) stats.serve[p.result]++;
+          } else if (cat === 'spike') {
+            stats.spike.total++;
+            if (stats.spike[p.result] !== undefined) stats.spike[p.result]++;
+          } else if (cat === 'receive') {
+            stats.receive.total++;
+            if (stats.receive[p.result] !== undefined) stats.receive[p.result]++;
+          }
+        }
+        return stats;
+      }
+
+      // ----------------------------------------------------------------------
+      // コアアクション：Firebase Realtime Database ノード操作
+      // ----------------------------------------------------------------------
+      function recordPlay(category, result) {
+        if (!roomCode) return;
+        const session = getCurrentSession();
+        if (!session) return;
+
+        const playPayload = {
+          set: state.currentSet,
+          category: category,
+          result: result,
+          ts: Date.now()
+        };
+
+        triggerHaptic();
+        const skillLabel = SKILL_META[category].label;
+        const resultLabel = SKILL_META[category].results[result].label;
+        showToast(`✓ SET${state.currentSet} ${skillLabel}：${resultLabel}`);
+
+        db.ref(`rooms/${roomCode}/sessions/${session.id}/plays`).push(playPayload)
+          .catch((err) => {
+            console.error('記録書き込みエラー:', err);
+            showToast('記録の送信に失敗しました', true);
+          });
+      }
+
+      function undoLastPlay() {
+        if (!roomCode) return;
+        const session = getCurrentSession();
+        if (!session || session.plays.length === 0) return;
+
+        // ts最大の最後の1件を取得
+        const lastPlay = session.plays[session.plays.length - 1];
+        triggerHaptic();
+
+        const cat = lastPlay.category || lastPlay.skill;
+        const skillLabel = SKILL_META[cat].label;
+        const resultLabel = SKILL_META[cat].results[lastPlay.result].label;
+        showToast(`↩ 取消: SET${lastPlay.set} ${skillLabel}（${resultLabel}）`, true);
+
+        db.ref(`rooms/${roomCode}/sessions/${session.id}/plays/${lastPlay.id}`).remove()
+          .catch((err) => {
+            console.error('取り消しエラー:', err);
+            showToast('取り消しに失敗しました', true);
+          });
+      }
+
+      function deletePlayById(playId) {
+        if (!roomCode) return;
+        const session = getCurrentSession();
+        if (!session) return;
+
+        const target = session.plays.find(p => p.id === playId);
+        if (!target) return;
+
+        triggerHaptic();
+        const cat = target.category || target.skill;
+        const skillLabel = SKILL_META[cat].label;
+        const resultLabel = SKILL_META[cat].results[target.result].label;
+        showToast(`削除しました: ${skillLabel}（${resultLabel}）`, true);
+
+        db.ref(`rooms/${roomCode}/sessions/${session.id}/plays/${playId}`).remove()
+          .catch((err) => {
+            console.error('個別削除エラー:', err);
+            showToast('削除に失敗しました', true);
+          });
+      }
+
+      function selectSet(setNum) {
+        state.currentSet = setNum;
+        renderHeader();
+        renderRecordView();
+      }
+
+      function addSet() {
+        if (!roomCode) return;
+        const session = getCurrentSession();
+        if (!session) return;
+
+        const maxRecordedSet = session.plays.reduce((max, p) => Math.max(max, p.set), 1);
+        const currentMax = Math.max(session.setCount || 1, maxRecordedSet, state.currentSet);
+        const nextSetCount = currentMax + 1;
+
+        state.currentSet = nextSetCount;
+        showToast(`SET ${nextSetCount} を追加しました`);
+
+        db.ref(`rooms/${roomCode}/sessions/${session.id}`).update({
+          setCount: nextSetCount
+        }).catch((err) => {
+          console.error('セット追加エラー:', err);
+          showToast('セット追加に失敗しました', true);
+        });
+      }
+
+      // ----------------------------------------------------------------------
+      // レンダリング関数群
+      // ----------------------------------------------------------------------
+      function renderAll() {
+        renderHeader();
+        renderRecordView();
+        if (uiState.activeTab === 'stats') {
+          renderStatsView();
+        } else if (uiState.activeTab === 'history') {
+          renderHistoryView();
+        }
+      }
+
+      function renderHeader() {
+        const session = getCurrentSession();
+        const currentPlayerName = getSessionPlayerName(session);
+        document.getElementById('headerPlayerName').textContent = currentPlayerName || '選手名を入力';
+        document.getElementById('headerSessionName').textContent = session ? session.name : '試合未選択';
+
+        // セットバー生成
+        const setBar = document.getElementById('setBar');
+        setBar.innerHTML = '';
+
+        if (!session) return;
+
+        const maxRecordedSet = session.plays.reduce((max, p) => Math.max(max, p.set), 1);
+        const totalSets = Math.max(session.setCount || 2, maxRecordedSet, state.currentSet);
+
+        for (let i = 1; i <= totalSets; i++) {
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = `set-chip ${state.currentSet === i ? 'active' : ''}`;
+          btn.textContent = `SET ${i}`;
+          btn.addEventListener('click', () => selectSet(i));
+          setBar.appendChild(btn);
+        }
+
+        const addBtn = document.createElement('button');
+        addBtn.type = 'button';
+        addBtn.className = 'set-add-btn';
+        addBtn.textContent = '＋ SET追加';
+        addBtn.addEventListener('click', addSet);
+        setBar.appendChild(addBtn);
+      }
+
+      function renderRecordView() {
+        const session = getCurrentSession();
+        const plays = session ? session.plays : [];
+
+        // 表示スコープ（全セット or 現在のSET）
+        const targetPlays = uiState.recordCountScope === 'set'
+          ? plays.filter(p => p.set === state.currentSet)
+          : plays;
+
+        const stats = computeStats(targetPlays);
+
+        document.getElementById('recordScopeLabel').textContent =
+          uiState.recordCountScope === 'set'
+            ? `表示本数：SET ${state.currentSet} のみ`
+            : '表示本数：全セット合計';
+
+        document.getElementById('cardServeBadge').textContent = `${stats.serve.total}本`;
+        document.getElementById('cardSpikeBadge').textContent = `${stats.spike.total}本`;
+        document.getElementById('cardReceiveBadge').textContent = `${stats.receive.total}本`;
+
+        // 直前の記録と戻すボタン状態
+        const undoBtn = document.getElementById('undoBtn');
+        const lastPlayText = document.getElementById('lastPlayText');
+
+        if (plays.length > 0) {
+          const last = plays[plays.length - 1];
+          const cat = last.category || last.skill;
+          const sLabel = SKILL_META[cat].label;
+          const rLabel = SKILL_META[cat].results[last.result].label;
+          lastPlayText.textContent = `#${plays.length} [SET${last.set}] ${sLabel} → ${rLabel}`;
+          undoBtn.disabled = false;
+        } else {
+          lastPlayText.textContent = 'まだ記録がありません';
+          undoBtn.disabled = true;
+        }
+      }
+
+      function renderStatsView() {
+        const session = getCurrentSession();
+        if (!session) return;
+
+        const sessionPlayer = getSessionPlayerName(session);
+        document.getElementById('statsSessionTitle').textContent = session.name;
+        document.getElementById('statsSessionPlayer').textContent = `🏐 選手：${sessionPlayer || '未設定'}`;
+
+        // セット別フィルタボタンの生成
+        const filterBar = document.getElementById('statsSetFilterBar');
+        filterBar.innerHTML = '';
+
+        const maxSet = Math.max(
+          session.setCount || 1,
+          session.plays.reduce((m, p) => Math.max(m, p.set), 1)
+        );
+
+        const filters = [{ id: 'all', label: '全セット合計' }];
+        for (let i = 1; i <= maxSet; i++) {
+          filters.push({ id: i, label: `SET ${i}` });
+        }
+
+        filters.forEach(f => {
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = `filter-pill ${uiState.statsSetFilter === f.id ? 'active' : ''}`;
+          btn.textContent = f.label;
+          btn.addEventListener('click', () => {
+            uiState.statsSetFilter = f.id;
+            renderStatsView();
+          });
+          filterBar.appendChild(btn);
+        });
+
+        const filteredPlays = uiState.statsSetFilter === 'all'
+          ? session.plays
+          : session.plays.filter(p => p.set === uiState.statsSetFilter);
+
+        document.getElementById('statsTotalPlays').textContent = `計 ${filteredPlays.length} プレー`;
+
+        const s = computeStats(filteredPlays);
+        const container = document.getElementById('currentStatsContent');
+
+        // サーブ・スパイク・サーブレシーブの詳細集計HTML
+        container.innerHTML = `
+          <!-- サーブ集計 -->
+          <div class="stat-group">
+            <div class="stat-group-header">
+              <span class="stat-group-name" style="color:var(--serve-accent);">🎯 サーブ</span>
+              <span class="stat-group-total">総数: ${s.serve.total} 本</span>
+            </div>
+            ${renderStackedBar([
+              { val: s.serve.ace, cls: 'bar-seg-pos' },
+              { val: s.serve.break, cls: 'bar-seg-good' },
+              { val: s.serve.continue, cls: 'bar-seg-neu' },
+              { val: s.serve.miss, cls: 'bar-seg-neg' }
+            ], s.serve.total)}
+            <div class="kpi-grid">
+              <div class="kpi-box">
+                <span class="kpi-label">エース率</span>
+                <span class="kpi-value text-pos">${calcRate(s.serve.ace, s.serve.total)}%<span class="kpi-sub">(${s.serve.ace})</span></span>
+              </div>
+              <div class="kpi-box">
+                <span class="kpi-label">ミス率</span>
+                <span class="kpi-value text-neg">${calcRate(s.serve.miss, s.serve.total)}%<span class="kpi-sub">(${s.serve.miss})</span></span>
+              </div>
+              <div class="kpi-box">
+                <span class="kpi-label">相手を崩した</span>
+                <span class="kpi-value">${calcRate(s.serve.break, s.serve.total)}%<span class="kpi-sub">(${s.serve.break})</span></span>
+              </div>
+              <div class="kpi-box">
+                <span class="kpi-label">続行</span>
+                <span class="kpi-value">${calcRate(s.serve.continue, s.serve.total)}%<span class="kpi-sub">(${s.serve.continue})</span></span>
+              </div>
+            </div>
+          </div>
+
+          <!-- スパイク集計 -->
+          <div class="stat-group">
+            <div class="stat-group-header">
+              <span class="stat-group-name" style="color:var(--spike-accent);">⚡ スパイク</span>
+              <span class="stat-group-total">総数: ${s.spike.total} 本</span>
+            </div>
+            ${renderStackedBar([
+              { val: s.spike.kill, cls: 'bar-seg-pos' },
+              { val: s.spike.continue, cls: 'bar-seg-neu' },
+              { val: s.spike.blocked, cls: 'bar-seg-warn' },
+              { val: s.spike.miss, cls: 'bar-seg-neg' }
+            ], s.spike.total)}
+            <div class="kpi-grid">
+              <div class="kpi-box">
+                <span class="kpi-label">決定率</span>
+                <span class="kpi-value text-pos">${calcRate(s.spike.kill, s.spike.total)}%<span class="kpi-sub">(${s.spike.kill})</span></span>
+              </div>
+              <div class="kpi-box">
+                <span class="kpi-label">ミス率</span>
+                <span class="kpi-value text-neg">${calcRate(s.spike.miss, s.spike.total)}%<span class="kpi-sub">(${s.spike.miss})</span></span>
+              </div>
+              <div class="kpi-box">
+                <span class="kpi-label">続行</span>
+                <span class="kpi-value">${calcRate(s.spike.continue, s.spike.total)}%<span class="kpi-sub">(${s.spike.continue})</span></span>
+              </div>
+              <div class="kpi-box">
+                <span class="kpi-label">被ブロック</span>
+                <span class="kpi-value">${calcRate(s.spike.blocked, s.spike.total)}%<span class="kpi-sub">(${s.spike.blocked})</span></span>
+              </div>
+            </div>
+          </div>
+
+          <!-- サーブレシーブ集計 -->
+          <div class="stat-group">
+            <div class="stat-group-header">
+              <span class="stat-group-name" style="color:var(--receive-accent);">🛡️ サーブレシーブ</span>
+              <span class="stat-group-total">総数: ${s.receive.total} 本</span>
+            </div>
+            ${renderStackedBar([
+              { val: s.receive.passA, cls: 'bar-seg-pos' },
+              { val: s.receive.passB, cls: 'bar-seg-neu' },
+              { val: s.receive.miss, cls: 'bar-seg-neg' }
+            ], s.receive.total)}
+            <div class="kpi-grid">
+              <div class="kpi-box">
+                <span class="kpi-label">Aパス率</span>
+                <span class="kpi-value text-pos">${calcRate(s.receive.passA, s.receive.total)}%<span class="kpi-sub">(${s.receive.passA})</span></span>
+              </div>
+              <div class="kpi-box">
+                <span class="kpi-label">失点率</span>
+                <span class="kpi-value text-neg">${calcRate(s.receive.miss, s.receive.total)}%<span class="kpi-sub">(${s.receive.miss})</span></span>
+              </div>
+              <div class="kpi-box" style="grid-column: span 2;">
+                <span class="kpi-label">Bパス率（繋がった）</span>
+                <span class="kpi-value">${calcRate(s.receive.passB, s.receive.total)}%<span class="kpi-sub">(${s.receive.passB}本)</span></span>
+              </div>
+            </div>
+          </div>
+        `;
+
+        renderTrendChart();
+        renderAllSessionsList();
+      }
+
+      function renderStackedBar(segments, total) {
+        if (!total || total === 0) {
+          return `<div class="stacked-bar"></div>`;
+        }
+        const inner = segments
+          .filter(seg => seg.val > 0)
+          .map(seg => {
+            const pct = (seg.val / total) * 100;
+            return `<div class="${seg.cls}" style="width:${pct}%"></div>`;
+          })
+          .join('');
+        return `<div class="stacked-bar">${inner}</div>`;
+      }
+
+      function renderTrendChart() {
+        const container = document.getElementById('trendChartContainer');
+        // 時系列順（古い試合→新しい試合）に並べる
+        const ordered = [...state.sessions].reverse();
+
+        if (ordered.length === 0) {
+          container.innerHTML = `<div class="empty-state">データがありません</div>`;
+          return;
+        }
+
+        const stepX = 72;
+        const padLeft = 34;
+        const padRight = 24;
+        const padTop = 16;
+        const padBottom = 34;
+        const height = 175;
+        const plotHeight = height - padTop - padBottom;
+        const width = Math.max(320, padLeft + padRight + Math.max(0, ordered.length - 1) * stepX);
+
+        const points = ordered.map((sess, idx) => {
+          const st = computeStats(sess.plays);
+          return {
+            x: padLeft + idx * stepX,
+            label: sess.name.length > 7 ? sess.name.slice(0, 7) + '…' : sess.name,
+            serveAce: calcRateNum(st.serve.ace, st.serve.total),
+            spikeKill: calcRateNum(st.spike.kill, st.spike.total),
+            recA: calcRateNum(st.receive.passA, st.receive.total)
+          };
+        });
+
+        const getY = (val) => padTop + plotHeight - (val / 100) * plotHeight;
+
+        // グリッド線 (0%, 50%, 100%)
+        const gridLines = [0, 50, 100].map(v => {
+          const y = getY(v);
+          return `
+            <line x1="${padLeft}" y1="${y}" x2="${width - padRight}" y2="${y}" stroke="#e2e8f0" stroke-width="1" />
+            <text x="${padLeft - 6}" y="${y + 3}" text-anchor="end" font-size="9" fill="#64748b" font-weight="700">${v}%</text>
+          `;
+        }).join('');
+
+        const makePolyline = (key, color) => {
+          if (points.length < 2) return '';
+          const pts = points.map(p => `${p.x},${getY(p[key])}`).join(' ');
+          return `<polyline fill="none" stroke="${color}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" points="${pts}" />`;
+        };
+
+        const dotsAndLabels = points.map(p => {
+          return `
+            <line x1="${p.x}" y1="${padTop}" x2="${p.x}" y2="${padTop + plotHeight}" stroke="#f1f5f9" stroke-width="1" />
+            <circle cx="${p.x}" cy="${getY(p.serveAce)}" r="4" fill="#0284c7" />
+            <circle cx="${p.x}" cy="${getY(p.spikeKill)}" r="4" fill="#d97706" />
+            <circle cx="${p.x}" cy="${getY(p.recA)}" r="4" fill="#059669" />
+            <text x="${p.x}" y="${height - 12}" text-anchor="middle" font-size="9" fill="#334155" font-weight="700">${escapeHtml(p.label)}</text>
+          `;
+        }).join('');
+
+        container.innerHTML = `
+          <svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" style="display:block;">
+            ${gridLines}
+            ${makePolyline('serveAce', '#0284c7')}
+            ${makePolyline('spikeKill', '#d97706')}
+            ${makePolyline('recA', '#059669')}
+            ${dotsAndLabels}
+          </svg>
+        `;
+      }
+
+      function renderAllSessionsList() {
+        const listEl = document.getElementById('allSessionsList');
+        listEl.innerHTML = '';
+
+        state.sessions.forEach(sess => {
+          const st = computeStats(sess.plays);
+          const isCurrent = sess.id === state.currentSessionId;
+          const sessPlayer = getSessionPlayerName(sess);
+
+          const card = document.createElement('div');
+          card.className = `session-stat-card ${isCurrent ? 'current' : ''}`;
+          card.innerHTML = `
+            <div class="session-stat-top">
+              <div>
+                <div class="session-stat-name">${escapeHtml(sess.name)} ${isCurrent ? '<span style="font-size:10px; background:var(--primary); color:#fff; padding:1px 6px; border-radius:8px; margin-left:4px;">選択中</span>' : ''}</div>
+                <div class="session-stat-meta">🏐 選手：${escapeHtml(sessPlayer || '未設定')} ／ 総プレー数: ${st.total}本</div>
+              </div>
+              <button type="button" class="btn-secondary-sm switch-session-btn" data-id="${sess.id}">
+                ${isCurrent ? '記録中' : '表示・記録'}
+              </button>
+            </div>
+            <div class="session-mini-metrics">
+              <div class="mini-metric">
+                <div class="mini-metric-title" style="color:var(--serve-accent);">サーブ (${st.serve.total})</div>
+                <div class="mini-metric-body">
+                  エース <span class="text-pos">${calcRate(st.serve.ace, st.serve.total)}%</span><br>
+                  ミス <span class="text-neg">${calcRate(st.serve.miss, st.serve.total)}%</span>
+                </div>
+              </div>
+              <div class="mini-metric">
+                <div class="mini-metric-title" style="color:var(--spike-accent);">スパイク (${st.spike.total})</div>
+                <div class="mini-metric-body">
+                  決定 <span class="text-pos">${calcRate(st.spike.kill, st.spike.total)}%</span><br>
+                  ミス <span class="text-neg">${calcRate(st.spike.miss, st.spike.total)}%</span>
+                </div>
+              </div>
+              <div class="mini-metric">
+                <div class="mini-metric-title" style="color:var(--receive-accent);">レシーブ (${st.receive.total})</div>
+                <div class="mini-metric-body">
+                  Aパス <span class="text-pos">${calcRate(st.receive.passA, st.receive.total)}%</span><br>
+                  失点 <span class="text-neg">${calcRate(st.receive.miss, st.receive.total)}%</span>
+                </div>
+              </div>
+            </div>
+          `;
+
+          card.querySelector('.switch-session-btn').addEventListener('click', () => {
+            state.currentSessionId = sess.id;
+            state.currentSet = 1;
+            uiState.statsSetFilter = 'all';
+            showToast(`「${sess.name}」を選択しました`);
+            renderAll();
+          });
+
+          listEl.appendChild(card);
+        });
+      }
+
+      function renderHistoryView() {
+        const session = getCurrentSession();
+        if (!session) return;
+
+        const listEl = document.getElementById('historyList');
+        const subEl = document.getElementById('historySessionSub');
+        const sortBtn = document.getElementById('toggleSortBtn');
+        const sessPlayer = getSessionPlayerName(session);
+
+        subEl.textContent = `${session.name}（選手: ${sessPlayer || '未設定'} ／ 全 ${session.plays.length} 件）`;
+        sortBtn.textContent = uiState.historySortDesc ? '新しい順 ▼' : '古い順 ▲';
+
+        if (session.plays.length === 0) {
+          listEl.innerHTML = `<div class="empty-state">まだプレーが記録されていません。<br>「記録」タブからタップして記録を開始してください。</div>`;
+          return;
+        }
+
+        // 通し番号を付与してから並び替え
+        const indexed = session.plays.map((p, idx) => ({ ...p, seq: idx + 1 }));
+        if (uiState.historySortDesc) {
+          indexed.reverse();
+        }
+
+        listEl.innerHTML = '';
+        indexed.forEach(item => {
+          const cat = item.category || item.skill;
+          const sMeta = SKILL_META[cat];
+          const rMeta = sMeta.results[item.result];
+          let colorClass = '';
+          if (rMeta.type === 'positive') colorClass = 'text-pos';
+          if (rMeta.type === 'negative') colorClass = 'text-neg';
+
+          const row = document.createElement('div');
+          row.className = 'history-item';
+          row.innerHTML = `
+            <div class="history-num">#${item.seq}</div>
+            <div class="history-main">
+              <div class="history-badges">
+                <span class="badge-set">SET ${item.set}</span>
+                <span class="badge-skill">${sMeta.label}</span>
+                <span class="history-time">${formatTime(item.ts || item.timestamp)}</span>
+              </div>
+              <div class="history-result ${colorClass}">${rMeta.label}</div>
+            </div>
+            <button type="button" class="delete-play-btn" aria-label="この記録を削除">削除</button>
+          `;
+
+          row.querySelector('.delete-play-btn').addEventListener('click', () => {
+            deletePlayById(item.id);
+          });
+
+          listEl.appendChild(row);
+        });
+      }
+
+      function renderSessionModalList() {
+        const container = document.getElementById('modalSessionList');
+        container.innerHTML = '';
+
+        const currentSess = getCurrentSession();
+        const editTitleInput = document.getElementById('editSessionTitleInput');
+        if (editTitleInput && currentSess && document.activeElement !== editTitleInput) {
+          editTitleInput.value = currentSess.name;
+        }
+
+        state.sessions.forEach(sess => {
+          const isCurrent = sess.id === state.currentSessionId;
+          const sessPlayer = getSessionPlayerName(sess);
+          const item = document.createElement('div');
+          item.className = `session-manage-item ${isCurrent ? 'active' : ''}`;
+          item.innerHTML = `
+            <div style="flex:1; min-width:0; cursor:pointer;" class="select-area">
+              <div style="font-size:14px; font-weight:900; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+                ${escapeHtml(sess.name)}
+              </div>
+              <div style="font-size:11px; color:var(--text-secondary); font-weight:700;">
+                選手: ${escapeHtml(sessPlayer || '未設定')} ／ 記録数: ${sess.plays.length} プレー
+              </div>
+            </div>
+            <div style="display:flex; gap:6px; flex-shrink:0;">
+              ${!isCurrent ? `<button type="button" class="btn-secondary-sm select-btn">選択</button>` : `<span style="font-size:11px; font-weight:800; color:var(--primary); padding:6px;">選択中</span>`}
+              ${state.sessions.length > 1 ? `<button type="button" class="btn-danger-sm del-btn">削除</button>` : ''}
+            </div>
+          `;
+
+          const selectHandler = () => {
+            state.currentSessionId = sess.id;
+            state.currentSet = 1;
+            uiState.statsSetFilter = 'all';
+            closeModal('sessionModal');
+            showToast(`「${sess.name}」に切り替えました`);
+            renderAll();
+          };
+
+          item.querySelector('.select-area').addEventListener('click', selectHandler);
+          const selBtn = item.querySelector('.select-btn');
+          if (selBtn) selBtn.addEventListener('click', selectHandler);
+
+          const delBtn = item.querySelector('.del-btn');
+          if (delBtn) {
+            delBtn.addEventListener('click', (e) => {
+              e.stopPropagation();
+              // 2段階確認（誤削除防止・confirm()不使用）
+              if (delBtn.dataset.confirm !== 'true') {
+                delBtn.dataset.confirm = 'true';
+                delBtn.textContent = '本当に削除?';
+                delBtn.style.background = '#dc2626';
+                delBtn.style.color = '#ffffff';
+                setTimeout(() => {
+                  if (delBtn) {
+                    delBtn.dataset.confirm = '';
+                    delBtn.textContent = '削除';
+                    delBtn.style.background = '';
+                    delBtn.style.color = '';
+                  }
+                }, 3000);
+                return;
+              }
+              if (state.currentSessionId === sess.id) {
+                const remaining = state.sessions.filter(s => s.id !== sess.id);
+                state.currentSessionId = remaining.length > 0 ? remaining[0].id : null;
+                state.currentSet = 1;
+              }
+              db.ref(`rooms/${roomCode}/sessions/${sess.id}`).remove()
+                .then(() => {
+                  showToast('試合データを削除しました', true);
+                })
+                .catch((err) => {
+                  console.error('セッション削除エラー:', err);
+                  showToast('削除に失敗しました', true);
+                });
+            });
+          }
+
+          container.appendChild(item);
+        });
+      }
+
+      function escapeHtml(str) {
+        return String(str)
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;');
+      }
+
+      // ----------------------------------------------------------------------
+      // モーダル制御
+      // ----------------------------------------------------------------------
+      function openModal(id) {
+        const el = document.getElementById(id);
+        if (el) el.classList.add('open');
+      }
+
+      function closeModal(id) {
+        const el = document.getElementById(id);
+        if (el) el.classList.remove('open');
+      }
+
+      // ----------------------------------------------------------------------
+      // 初回ルームコード（合言葉）設定フロー
+      // ----------------------------------------------------------------------
+      function showRoomGate() {
+        const overlay = document.getElementById('roomGateOverlay');
+        overlay.classList.add('open');
+        setTimeout(() => {
+          document.getElementById('initialRoomCodeInput').focus();
+        }, 100);
+      }
+
+      function hideRoomGate() {
+        document.getElementById('roomGateOverlay').classList.remove('open');
+      }
+
+      function applyNewRoomCode(rawInput) {
+        const cleaned = sanitizeRoomCode(rawInput);
+        if (!cleaned) {
+          showToast('合言葉を入力してください', true);
+          return false;
+        }
+        try {
+          localStorage.setItem(ROOM_CODE_STORAGE_KEY, cleaned);
+        } catch (e) {
+          console.error('localStorage保存エラー:', e);
+        }
+        state.currentSessionId = null;
+        state.currentSet = 1;
+        state.sessions = [];
+        connectToRoom(cleaned);
+        return true;
+      }
+
+      // ----------------------------------------------------------------------
+      // イベントリスナー初期化
+      // ----------------------------------------------------------------------
+      function initEvents() {
+        // 初回起動：合言葉「はじめる」ボタン＆Enterキー
+        document.getElementById('startWithRoomCodeBtn').addEventListener('click', () => {
+          const val = document.getElementById('initialRoomCodeInput').value;
+          if (applyNewRoomCode(val)) {
+            hideRoomGate();
+          }
+        });
+
+        document.getElementById('initialRoomCodeInput').addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            document.getElementById('startWithRoomCodeBtn').click();
+          }
+        });
+
+        // 記録ボタン（全スキル・結果）
+        document.querySelectorAll('.record-btn').forEach(btn => {
+          btn.addEventListener('click', () => {
+            const category = btn.dataset.skill;
+            const result = btn.dataset.result;
+            recordPlay(category, result);
+          });
+        });
+
+        // 1つ戻すボタン
+        document.getElementById('undoBtn').addEventListener('click', undoLastPlay);
+
+        // 記録カウントの表示スコープ切替（全セット / 現在のSET）
+        document.querySelectorAll('.scope-btn').forEach(btn => {
+          btn.addEventListener('click', () => {
+            document.querySelectorAll('.scope-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            uiState.recordCountScope = btn.dataset.scope;
+            renderRecordView();
+          });
+        });
+
+        // 下部タブ切替
+        document.querySelectorAll('.nav-item').forEach(nav => {
+          nav.addEventListener('click', () => {
+            const targetTab = nav.dataset.tab;
+            uiState.activeTab = targetTab;
+
+            document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+            nav.classList.add('active');
+
+            document.querySelectorAll('.view-section').forEach(sec => sec.classList.remove('active'));
+            document.getElementById(`view-${targetTab}`).classList.add('active');
+
+            if (targetTab === 'stats') renderStatsView();
+            if (targetTab === 'history') renderHistoryView();
+            if (targetTab === 'record') renderRecordView();
+          });
+        });
+
+        // 履歴の並び順切替
+        document.getElementById('toggleSortBtn').addEventListener('click', () => {
+          uiState.historySortDesc = !uiState.historySortDesc;
+          renderHistoryView();
+        });
+
+        // 選手設定モーダル開閉・保存
+        document.getElementById('openPlayerModalBtn').addEventListener('click', () => {
+          const currentSess = getCurrentSession();
+          document.getElementById('playerNameInput').value = getSessionPlayerName(currentSess);
+          document.getElementById('currentRoomCodeDisplay').textContent = roomCode || '未設定';
+          document.getElementById('changeRoomForm').style.display = 'none';
+          document.getElementById('editRoomCodeInput').value = roomCode || '';
+          openModal('playerModal');
+        });
+
+        document.getElementById('savePlayerBtn').addEventListener('click', () => {
+          if (!roomCode) return;
+          const newName = document.getElementById('playerNameInput').value.trim();
+          const currentSess = getCurrentSession();
+          state.playerName = newName;
+          closeModal('playerModal');
+
+          if (currentSess) {
+            db.ref(`rooms/${roomCode}/sessions/${currentSess.id}`).update({
+              playerName: newName
+            }).then(() => {
+              showToast('この試合の選手名を保存しました');
+            }).catch((err) => {
+              console.error('選手名更新エラー:', err);
+              showToast('選手名の保存に失敗しました', true);
+            });
+          }
+        });
+
+        // 選手設定モーダル内：合言葉（ルームコード）変更
+        document.getElementById('openChangeRoomBtn').addEventListener('click', () => {
+          const form = document.getElementById('changeRoomForm');
+          const isHidden = form.style.display === 'none';
+          form.style.display = isHidden ? 'block' : 'none';
+          if (isHidden) {
+            const input = document.getElementById('editRoomCodeInput');
+            input.value = roomCode || '';
+            input.focus();
+          }
+        });
+
+        document.getElementById('applyRoomCodeBtn').addEventListener('click', () => {
+          const val = document.getElementById('editRoomCodeInput').value;
+          if (applyNewRoomCode(val)) {
+            document.getElementById('currentRoomCodeDisplay').textContent = roomCode;
+            document.getElementById('changeRoomForm').style.display = 'none';
+            closeModal('playerModal');
+            showToast(`合言葉「${roomCode}」に接続しました`);
+          }
+        });
+
+        // セッション管理モーダル開閉・タイトル変更・新規作成
+        const openSessionModalHandler = () => {
+          const currentSess = getCurrentSession();
+          document.getElementById('editSessionTitleInput').value = currentSess ? currentSess.name : '';
+          document.getElementById('newSessionNameInput').value = `${formatTodayPrefix()} `;
+          document.getElementById('newSessionPlayerInput').value = getSessionPlayerName(currentSess);
+          renderSessionModalList();
+          openModal('sessionModal');
+        };
+
+        document.getElementById('openSessionModalBtn').addEventListener('click', openSessionModalHandler);
+        document.getElementById('newSessionFromStatsBtn').addEventListener('click', openSessionModalHandler);
+
+        document.getElementById('saveSessionTitleBtn').addEventListener('click', () => {
+          if (!roomCode) return;
+          const currentSess = getCurrentSession();
+          if (!currentSess) return;
+          const newTitle = document.getElementById('editSessionTitleInput').value.trim();
+          if (!newTitle) {
+            showToast('試合名を入力してください', true);
+            return;
+          }
+          db.ref(`rooms/${roomCode}/sessions/${currentSess.id}`).update({
+            title: newTitle
+          }).then(() => {
+            showToast('試合名を変更しました');
+          }).catch((err) => {
+            console.error('試合名変更エラー:', err);
+            showToast('試合名の変更に失敗しました', true);
+          });
+        });
+
+        document.getElementById('createSessionBtn').addEventListener('click', () => {
+          if (!roomCode) return;
+          const input = document.getElementById('newSessionNameInput');
+          const playerInput = document.getElementById('newSessionPlayerInput');
+          const title = input.value.trim() || `${formatTodayPrefix()} 試合`;
+          const pName = playerInput.value.trim();
+
+          const newSessId = generateId('sess');
+          const newSessData = {
+            playerName: pName,
+            title: title,
+            setCount: 2,
+            createdAt: Date.now()
+          };
+
+          state.playerName = pName;
+          state.currentSessionId = newSessId;
+          state.currentSet = 1;
+          uiState.statsSetFilter = 'all';
+          closeModal('sessionModal');
+
+          db.ref(`rooms/${roomCode}/sessions/${newSessId}`).set(newSessData)
+            .then(() => {
+              showToast(`新しい試合「${title}」を開始`);
+            })
+            .catch((err) => {
+              console.error('セッション作成エラー:', err);
+              showToast('試合の作成に失敗しました', true);
+            });
+        });
+
+        // モーダル閉じるボタン＆背景タップ
+        document.querySelectorAll('[data-close]').forEach(btn => {
+          btn.addEventListener('click', () => closeModal(btn.dataset.close));
+        });
+
+        document.querySelectorAll('.modal-backdrop').forEach(backdrop => {
+          backdrop.addEventListener('click', (e) => {
+            if (e.target === backdrop) {
+              backdrop.classList.remove('open');
+            }
+          });
+        });
+
+        // JSONバックアップ出力
+        document.getElementById('exportJsonBtn').addEventListener('click', () => {
+          try {
+            const exportPayload = {
+              playerName: state.playerName,
+              currentSessionId: state.currentSessionId,
+              currentSet: state.currentSet,
+              sessions: state.sessions.map(s => ({
+                id: s.id,
+                name: s.name,
+                title: s.name,
+                playerName: s.playerName,
+                createdAt: s.createdAt,
+                maxSet: s.setCount,
+                setCount: s.setCount,
+                plays: s.plays.map(p => ({
+                  id: p.id,
+                  set: p.set,
+                  category: p.category || p.skill,
+                  skill: p.category || p.skill,
+                  result: p.result,
+                  ts: p.ts,
+                  timestamp: p.timestamp
+                }))
+              }))
+            };
+            const dataStr = JSON.stringify(exportPayload, null, 2);
+            const blob = new Blob([dataStr], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `volleyball_record_${formatTodayPrefix().replace(/\//g, '')}.json`;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            URL.revokeObjectURL(url);
+            showToast('バックアップファイルを保存しました');
+          } catch (e) {
+            showToast('エクスポートに失敗しました', true);
+          }
+        });
+
+        // JSONバックアップ復元（現在のルーム配下に書き込み）
+        document.getElementById('importJsonInput').addEventListener('change', (e) => {
+          const file = e.target.files[0];
+          if (!file) return;
+          if (!roomCode) {
+            showToast('合言葉が未設定です', true);
+            e.target.value = '';
+            return;
+          }
+          const reader = new FileReader();
+          reader.onload = (ev) => {
+            try {
+              const imported = JSON.parse(ev.target.result);
+              if (imported && Array.isArray(imported.sessions) && imported.sessions.length > 0) {
+                const updates = {};
+                let firstValidSessId = null;
+
+                imported.sessions.forEach((sess, sIdx) => {
+                  const rawId = sess.id || generateId(`sess_${sIdx}`);
+                  const sessId = String(rawId).replace(/[.#$\[\]\/]/g, '_');
+                  if (!firstValidSessId) firstValidSessId = sessId;
+
+                  const playsMap = {};
+                  if (Array.isArray(sess.plays)) {
+                    sess.plays.forEach((p, pIdx) => {
+                      const rawPlayId = p.id || generateId(`play_${pIdx}`);
+                      const pushKey = String(rawPlayId).replace(/[.#$\[\]\/]/g, '_');
+                      const tsVal = typeof p.ts === 'number'
+                        ? p.ts
+                        : (p.timestamp ? Date.parse(p.timestamp) || (Date.now() + pIdx) : (Date.now() + pIdx));
+                      playsMap[pushKey] = {
+                        set: Number(p.set) || 1,
+                        category: p.category || p.skill || 'serve',
+                        result: p.result || 'continue',
+                        ts: tsVal
+                      };
+                    });
+                  }
+
+                  const createdVal = typeof sess.createdAt === 'number'
+                    ? sess.createdAt
+                    : (sess.createdAt ? Date.parse(sess.createdAt) || Date.now() : Date.now());
+
+                  updates[`sessions/${sessId}`] = {
+                    playerName: typeof sess.playerName === 'string' ? sess.playerName : (imported.playerName || ''),
+                    title: sess.title || sess.name || `${formatTodayPrefix()} 試合`,
+                    setCount: Number(sess.setCount || sess.maxSet) || 2,
+                    createdAt: createdVal,
+                    plays: playsMap
+                  };
+                });
+
+                if (imported.currentSessionId) {
+                  const sanitizedTargetId = String(imported.currentSessionId).replace(/[.#$\[\]\/]/g, '_');
+                  state.currentSessionId = sanitizedTargetId;
+                } else if (firstValidSessId) {
+                  state.currentSessionId = firstValidSessId;
+                }
+                state.currentSet = 1;
+
+                db.ref(`rooms/${roomCode}`).update(updates)
+                  .then(() => {
+                    closeModal('playerModal');
+                    showToast('バックアップデータを復元しました');
+                  })
+                  .catch((err) => {
+                    console.error('復元書き込みエラー:', err);
+                    showToast('データの復元に失敗しました', true);
+                  });
+              } else {
+                showToast('無効なファイル形式です', true);
+              }
+            } catch (err) {
+              showToast('ファイルの読み込みに失敗しました', true);
+            }
+            e.target.value = '';
+          };
+          reader.readAsText(file);
+        });
+      }
+
+      // ----------------------------------------------------------------------
+      // 起動処理
+      // ----------------------------------------------------------------------
+      window.addEventListener('DOMContentLoaded', () => {
+        initEvents();
+        initConnectionMonitor();
+
+        let savedRoomCode = '';
+        try {
+          savedRoomCode = sanitizeRoomCode(localStorage.getItem(ROOM_CODE_STORAGE_KEY) || '');
+        } catch (e) {
+          console.error('localStorage読み込みエラー:', e);
+        }
+
+        if (savedRoomCode) {
+          connectToRoom(savedRoomCode);
+        } else {
+          // コードが決まっていない状態ではデータにアクセスせず入力画面を表示
+          showRoomGate();
+        }
+      });
+    })();
+  </script>
+</body>
+</html>
